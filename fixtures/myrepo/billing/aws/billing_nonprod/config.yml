@@ -1,0 +1,4 @@
+terraform_module: env
+environment: nonprod
+region: ap-south-1
+account_id: "987654321098"

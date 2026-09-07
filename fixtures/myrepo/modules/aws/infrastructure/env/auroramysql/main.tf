@@ -1,0 +1,1 @@
+# auroramysql module placeholder

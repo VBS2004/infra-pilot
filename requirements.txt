@@ -1,0 +1,16 @@
+# Laptop / client install (network available):  uv pip install -r requirements.txt
+#
+# The indexer RUNS WITH ZERO DEPS (stdlib-only fallback parser + stdlib BM25),
+# so you can try it immediately. Installing these upgrades it to the
+# production backends described in the design plan.
+
+# Primary HCL parser backend (replaces the stdlib fallback automatically)
+tree-sitter>=0.21
+tree-sitter-hcl>=1.1.0
+
+# Lexical retrieval leg (replaces the bundled stdlib BM25 automatically)
+rank-bm25>=0.2.2
+
+# Vector store for the Jina v3 dense leg (wire in lexical_search.DenseRetriever)
+faiss-cpu>=1.8.0
+numpy>=1.26

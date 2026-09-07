@@ -1,0 +1,55 @@
+[project]
+name = "terra-pilot"
+version = "0.1.0"
+description = "Autopilot for Terraform & Terragrunt — generate production-ready IaC from natural language"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Venkat Balaji S", email = "vbs2004@users.noreply.github.com"},
+]
+keywords = [
+    "terraform",
+    "terragrunt",
+    "infrastructure-as-code",
+    "iac",
+    "ai",
+    "llm",
+    "code-generation",
+    "devops",
+    "rag",
+    "embeddings",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: System :: Systems Administration",
+]
+
+[project.urls]
+Homepage = "https://github.com/vbs2004/terra-pilot"
+Documentation = "https://github.com/vbs2004/terra-pilot#readme"
+Repository = "https://github.com/vbs2004/terra-pilot"
+Issues = "https://github.com/vbs2004/terra-pilot/issues"
+
+[project.optional-dependencies]
+full = [
+    "tree-sitter>=0.21",
+    "tree-sitter-hcl>=1.1.0",
+    "rank-bm25>=0.2.2",
+    "numpy>=1.26",
+    "sentence-transformers>=3.0",
+]
+reranker = [
+    "fastapi>=0.100",
+    "uvicorn>=0.20",
+    "sentence-transformers>=3.0",
+]

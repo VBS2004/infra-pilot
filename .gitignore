@@ -1,0 +1,51 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+__MACOSX/
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+
+# Embedding cache
+.infinity_cache/
+embed_cache/
+*.embed_cache
+
+# Model downloads
+models/
+
+# Large data files
+*.jsonl
+!fixtures/**/*.jsonl
+catalog.txt
+cpt_dataset.jsonl
+
+# Logs
+*.log
+
+# Local setup instructions
+LOCAL_README.md
