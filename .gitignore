@@ -49,3 +49,6 @@ cpt_dataset.jsonl
 
 # Local setup instructions
 LOCAL_README.md
+
+# Data directories
+/data/
