@@ -93,6 +93,16 @@ def _default_generate_json(messages: List[Dict[str, str]]) -> Dict:
     )
 
 
+def _default_generate(messages: List[Dict[str, str]]) -> str:
+    if os.environ.get("LOCAL_MODEL"):
+        from terra_pilot.llm import local_generator
+        return local_generator.complete(messages, temperature=0.1, max_tokens=8192)
+    return generator.complete(
+        messages,
+        temperature=0.1, max_tokens=8192,
+    )
+
+
 def _plan_edits_llm(base_hcl: str, values: Dict, grounding: str,
                     operation: str, generate_json: GenerateJsonFn,
                     edit_prompt: str) -> List[Dict]:
