@@ -567,5 +567,6 @@ def build_hybrid(idx: TerraPilotIndex, persist: bool = True) -> HybridRetriever:
         hr.dense = dense
     if config.RERANK_ENABLED:
         hr.reranker = HttpReranker(config.endpoint(config.RERANK_SLUG),
-                                   config.API_KEY, gateway.resolve_model_id(config.RERANK_SLUG))
+                                   config.API_KEY,
+                                   gateway.resolve_model_id(config.RERANK_SLUG, config.RERANK_MODEL or None))
     return hr

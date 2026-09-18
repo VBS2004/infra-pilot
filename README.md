@@ -168,15 +168,27 @@ All configuration is via environment variables. **Zero config files to manage.**
 | `LLM_EMBED_BACKEND` | `auto` | `http` (vLLM/API), `sentence_transformers` (local), `auto` |
 | `LLM_EMBED_MODEL` | `jina-embeddings-v3` | Embedding model name |
 | `LLM_EMBED_GATEWAY_BASE` | — | Override gateway URL for embeddings only |
-| `LLM_LOCAL_EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | Model for local SentenceTransformer backend |
+| `LLM_LOCAL_EMBED_MODEL` | `all-MiniLM-L6-v2` | Any sentence-transformers model id for the local backend |
 
 ### Reranker (Optional)
+
+Any OpenAI-rerank-API-compatible server works here — the bundled `reranker_server.py`
+is one option, but so is a hosted service or your own.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_RERANK_ENABLED` | `1` | Set `0` to skip cross-encoder reranking |
-| `LLM_RERANK_GATEWAY_BASE` | — | URL for reranker server |
-| `LLM_RERANK_MODEL` | `BAAI/bge-reranker-base` | Cross-encoder model |
+| `LLM_RERANK_GATEWAY_BASE` | — | Base URL of the rerank server |
+| `LLM_RERANK_MODEL` | — | Model name sent in the `/rerank` request; auto-discovered via `/v1/models` if unset |
+
+Running the bundled local reranker server (`reranker_server.py`) yourself? It reads
+its own env vars to pick which model to load:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RERANK_MODEL` | `BAAI/bge-reranker-base` | Any sentence-transformers CrossEncoder model id |
+| `RERANK_HOST` | `0.0.0.0` | Bind host |
+| `RERANK_PORT` | `8080` | Bind port |
 
 ### Example: Full Local Stack (Free, No API Costs)
 
