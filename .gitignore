@@ -52,3 +52,7 @@ LOCAL_README.md
 
 # Data directories
 /data/
+
+# Spark distribution archive / local db scratch
+spark-*.tgz
+terrads.db

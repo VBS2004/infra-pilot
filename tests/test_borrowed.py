@@ -14,15 +14,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 
-import storage
-from storage import LocalDiskStorage, set_storage
-from file_cache import FileCache
-from repo_scan import list_hcl_files
-from persistence import EmbeddingStore, repo_namespace, content_hash
-import index as index_mod
-from index import TerraPilotIndex, get_index, reset_index
-from lexical_search import HybridRetriever, EmbeddingDense, build_hybrid
-import agent_tools
+from terra_pilot.core import storage
+from terra_pilot.core.storage import LocalDiskStorage, set_storage
+from terra_pilot.core.file_cache import FileCache
+from terra_pilot.search.index import list_hcl_files
+from terra_pilot.core.persistence import EmbeddingStore, repo_namespace, content_hash
+from terra_pilot.search import index as index_mod
+from terra_pilot.search.index import TerraPilotIndex, get_index, reset_index
+from terra_pilot.search.lexical_search import HybridRetriever, EmbeddingDense, build_hybrid
+from terra_pilot.llm import agent_tools
 
 REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fixtures", "payments")
 

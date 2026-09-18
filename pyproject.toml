@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Autopilot for Terraform & Terragrunt — generate production-ready IaC from natural language"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     {name = "Venkat Balaji S", email = "vbs2004@users.noreply.github.com"},
 ]
@@ -32,6 +32,9 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Code Generators",
     "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "pyspark>=4.2.0",
 ]
 
 [project.urls]

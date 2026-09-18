@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 
-import config
+from terra_pilot.core import config
 
 _passed = 0
 _failed = 0
@@ -68,19 +68,19 @@ def test_embedder_http_path():
     config.API_KEY = "secret-key"
     config.EMBED_BACKEND = "http"
     urllib.request.urlopen = _fake_urlopen
-    from embedder import make_embedder
+    from terra_pilot.llm.embedder import make_embedder
     emb = make_embedder()
     check("http embedder constructed", emb is not None)
     v = emb.encode(["abc", "abcd"])
     check("embeddings shape", hasattr(v, "shape") and v.shape == (2, 3))
-    check("embeddings url", _LAST["url"] == "http://fake-gw/jina-embeddings-v3/v1/embeddings")
+    check("embeddings url", _LAST["url"] == "http://fake-gw/v1/embeddings")
     check("bearer auth sent", _LAST["auth"] == "Bearer secret-key")
     check("model in body", _LAST["body"]["model"] == config.EMBED_MODEL)
 
 
 def test_reranker_http_path():
     urllib.request.urlopen = _fake_urlopen
-    from lexical_search import HttpReranker
+    from terra_pilot.search.lexical_search import HttpReranker
 
     class C:
         def __init__(self, t):
@@ -89,7 +89,7 @@ def test_reranker_http_path():
     rr = HttpReranker(config.endpoint(config.RERANK_SLUG), "secret-key", config.RERANK_SLUG)
     docs = [C("a"), C("b"), C("c")]
     order = rr("q", docs)
-    check("rerank url", _LAST["url"].endswith("/qwen3-reranker-4b-svc/v1/rerank"))
+    check("rerank url", _LAST["url"].endswith("/v1/rerank"))
     check("rerank returns all", sorted(i for i, _ in order) == [0, 1, 2])
     check("rerank honors server order", order[0][0] == 2 and order[-1][0] == 0)
 

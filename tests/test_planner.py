@@ -11,9 +11,9 @@ os.environ["FORCE_PY_PARSER"] = "1"
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from index import TerraPilotIndex          # noqa: E402
-from catalog import ModuleCatalog        # noqa: E402
-from planner import Planner              # noqa: E402
+from terra_pilot.search.index import TerraPilotIndex
+from terra_pilot.search.catalog import ModuleCatalog
+from terra_pilot.llm.planner import Planner
 
 REPO = os.path.join(os.path.dirname(HERE), "fixtures", "payments")
 _passed = _failed = 0

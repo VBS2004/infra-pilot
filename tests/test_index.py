@@ -13,7 +13,7 @@ os.environ["FORCE_PY_PARSER"] = "1"
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from index import TerraPilotIndex  # noqa: E402
+from terra_pilot.search.index import TerraPilotIndex
 
 REPO = os.path.join(os.path.dirname(HERE), "fixtures", "payments")
 

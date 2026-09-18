@@ -3,7 +3,7 @@ import tempfile
 import textwrap
 import unittest
 
-import root_schema
+from terra_pilot.models import root_schema
 
 
 class TestRootSchema(unittest.TestCase):
