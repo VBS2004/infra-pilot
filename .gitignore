@@ -35,8 +35,8 @@ Thumbs.db
 embed_cache/
 *.embed_cache
 
-# Model downloads
-models/
+# Model downloads (root-level scratch dir only — not src/terra_pilot/models)
+/models/
 
 # Large data files
 *.jsonl
