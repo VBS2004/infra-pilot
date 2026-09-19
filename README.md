@@ -6,9 +6,9 @@
   **Autopilot for Terraform & Terragrunt — generate production-ready IaC from natural language.**
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-  [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+  [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
   [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-  [![GitHub Stars](https://img.shields.io/github/stars/vbs2004/terra-pilot?style=social)](https://github.com/vbs2004/terra-pilot)
+  [![GitHub Stars](https://img.shields.io/github/stars/vbs2004/terra-pilot?style=social)](https://github.com/VBS2004/infra-pilot)
 
   *"Deploy an EC2 for auth-service nonprod, just like in payments"* → production `inputs.hcl` + `terragrunt.hcl` in seconds.
 
@@ -28,12 +28,13 @@ Unlike generic AI code generators, terra-pilot uses a **hybrid RAG architecture*
 - 🧠 **Schema-enforced generation** — outputs are constrained by your actual `variables.tf` definitions (no hallucinated inputs)
 - 🎯 **Deterministic path resolution** — filesystem-grounded decisions, not vibes
 - 🔌 **Bring your own LLM** — works with DeepSeek, OpenAI, Anthropic, local models, or any OpenAI-compatible API
-- ⚡ **Works offline** — embeddings disabled? BM25 + path-matching still produce correct output (35/35 tests pass offline)
+- ⚡ **Works offline** — no embedder, no reranker? BM25 + path-matching still plan and retrieve correctly; the whole test suite runs against a local fake gateway with no network
+- 🛑 **Refuses to guess** — if your repo has no module for what you asked (say `rds`), terra-pilot prints a module scaffold and refuses to write, instead of letting an LLM invent inputs (`--freeform` opts out)
 
 ## 🎬 Demo
 
 ```bash
-$ python cli.py ./my-infra compose "deploy an ec2 for billing nonprod just like in auth"
+$ terra-pilot ./my-infra compose "deploy an ec2 for billing nonprod just like in auth"
 
 # intent: {"resource_type": "ec2", "project": "billing", "env": "nonprod",
 #          "reference": {"project": "auth", "component": "ec2"}}
@@ -62,15 +63,19 @@ $ python cli.py ./my-infra compose "deploy an ec2 for billing nonprod just like 
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/vbs2004/terra-pilot.git
-cd terra-pilot
+git clone https://github.com/VBS2004/infra-pilot.git
+cd infra-pilot
 
-# Zero-dep mode (works immediately — stdlib parser + BM25)
-python cli.py examples/sample-repo compose "create an s3 bucket for logging"
+# Zero-dependency install: stdlib HCL parser + BM25, no third-party packages
+pip install -e .
+terra-pilot fixtures/myrepo stats            # or, without installing: python cli.py fixtures/myrepo stats
 
-# Full mode (tree-sitter + dense retrieval)
-pip install -r requirements.txt
+# Better parsing / retrieval (tree-sitter, rank-bm25, numpy, sentence-transformers)
+pip install -e ".[full]"
 ```
+
+Optional extras: `[reranker]` (bundled rerank server), `[data]` (PySpark pipelines over TerraDS, needs Java 17),
+`[local]` (air-gapped `LOCAL_MODEL` generation).
 
 ### 2. Configure Your LLM
 
@@ -92,8 +97,10 @@ export LLM_GEN_MODEL="llama3"
 
 ### 3. Point at Your Repo & Go
 
+See `.env.example` for every variable.
+
 ```bash
-python cli.py /path/to/your/terraform-repo compose "deploy an ecs service for payments prod"
+terra-pilot /path/to/your/terraform-repo compose "deploy an ecs service for payments prod"
 ```
 
 ## 🧠 How It Works
@@ -128,24 +135,20 @@ terra-pilot is **not a chatbot** and **not a RAG Q&A system**. It's a **6-stage 
 ## 🏗️ Architecture
 
 ```
-terra-pilot/
-├── cli.py                 # CLI entry point
-├── compose.py             # Core composition pipeline (65KB of battle-tested logic)
-├── intent_parser.py       # LLM-powered natural language → JSON intent
-├── planner.py             # Reuse-vs-write decision engine
-├── catalog.py             # Module catalog — AST-derived schema for every .tf module
-├── retrieval.py           # Orchestrates hybrid search + reference resolution
-├── lexical_search.py      # BM25 + dense + reranker + RRF fusion
-├── embedder.py            # Pluggable embedding backends (HTTP / local SentenceTransformers)
-├── generator.py           # LLM code generation with schema constraints
-├── index.py               # Structural code index — symbol table + 5 edge types
-├── hcl_parser.py          # Zero-dep stdlib HCL parser (works everywhere)
-├── ts_backend.py          # Tree-sitter HCL backend (production accuracy)
-├── bootstrap.py           # Project/env scaffolding when target dirs don't exist
-├── config.py              # All configuration via environment variables
-├── gateway.py             # LLM gateway routing
-├── reranker_server.py     # Lightweight local cross-encoder server
-└── fixtures/              # Sample Terragrunt repos for testing
+src/terra_pilot/
+├── cli/          # argument dispatch (cli.py at the repo root is a shim)
+├── core/         # config (all env vars), convention detection, path resolution, storage, caches
+├── hcl/          # stdlib HCL parser + deterministic editors (hcl_edit, hcl_override)
+├── llm/          # generator (chat), intent_parser, planner, embedder, gateway discovery,
+│                 #   local_generator (air-gapped transformers), agent_tools
+├── models/       # root_schema, inventory (`list`), cpt_data (training-data builder)
+├── pipeline/     # compose.py orchestrator, bootstrap, emitters/ (terragrunt | plain_tf | flat_tf)
+├── search/       # structural index, module catalog, BM25 + dense + rerank retrieval
+├── server/       # optional local cross-encoder reranker (FastAPI)
+└── utils/        # validate (fmt / sanity / plan / checkov gate), livecheck, repo_scan
+data_pipeline/    # PySpark jobs over the TerraDS corpus (metadata + file extraction)
+fixtures/         # sample repos used by the tests
+tests/            # offline suites, including a fake OpenAI-compatible gateway
 ```
 
 ## ⚙️ Configuration
@@ -165,9 +168,9 @@ All configuration is via environment variables. **Zero config files to manage.**
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_EMBED_ENABLED` | `1` | Set `0` to disable dense retrieval (BM25-only) |
-| `LLM_EMBED_BACKEND` | `auto` | `http` (vLLM/API), `sentence_transformers` (local), `auto` |
+| `LLM_EMBED_BACKEND` | `auto` | `http` (vLLM/API), `sentence_transformers` (local), `none`, `auto` (HTTP only if `LLM_EMBED_GATEWAY_BASE` is set, else local, else BM25-only) |
 | `LLM_EMBED_MODEL` | `jina-embeddings-v3` | Embedding model name |
-| `LLM_EMBED_GATEWAY_BASE` | — | Override gateway URL for embeddings only |
+| `LLM_EMBED_GATEWAY_BASE` | — | Embedding server URL (never the generation gateway, unless `LLM_EMBED_BACKEND=http`) |
 | `LLM_LOCAL_EMBED_MODEL` | `all-MiniLM-L6-v2` | Any sentence-transformers model id for the local backend |
 
 ### Reranker (Optional)
@@ -177,8 +180,8 @@ is one option, but so is a hosted service or your own.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_RERANK_ENABLED` | `1` | Set `0` to skip cross-encoder reranking |
-| `LLM_RERANK_GATEWAY_BASE` | — | Base URL of the rerank server |
+| `LLM_RERANK_ENABLED` | `1` | Set `0` to force-disable. Reranking only runs when `LLM_RERANK_GATEWAY_BASE` is set |
+| `LLM_RERANK_GATEWAY_BASE` | — | Base URL of the rerank server (required to enable reranking) |
 | `LLM_RERANK_MODEL` | — | Model name sent in the `/rerank` request; auto-discovered via `/v1/models` if unset |
 
 Running the bundled local reranker server (`reranker_server.py`) yourself? It reads
@@ -197,7 +200,7 @@ its own env vars to pick which model to load:
 vllm serve BAAI/bge-small-en-v1.5 --port 8000
 
 # Terminal 2: Reranker via built-in server
-python reranker_server.py  # starts on port 8080
+python reranker_server.py  # starts on port 8080 (pip install -e '.[reranker]')
 
 # Terminal 3: Run terra-pilot
 export OPENAI_API_KEY="sk-your-deepseek-key"  # only generation needs an API
@@ -205,37 +208,57 @@ export LLM_GATEWAY_BASE="https://api.deepseek.com"
 export LLM_EMBED_GATEWAY_BASE="http://localhost:8000"
 export LLM_RERANK_GATEWAY_BASE="http://localhost:8080"
 
-python cli.py ./your-repo compose "create an rds for analytics prod"
+terra-pilot ./your-repo compose "create an rds for analytics prod"
 ```
 
 ## 🔌 CLI Commands
 
 ```bash
 # Compose infrastructure from natural language
-python cli.py <repo> compose "your request here"
-python cli.py <repo> compose "your request here" --apply  # write files
+terra-pilot <repo> compose "your request here"            # dry-run: prints files + diff
+terra-pilot <repo> compose "your request here" --apply    # write (fmt/HCL sanity checked first)
+terra-pilot <repo> compose --resource-type ec2 --project billing --env nonprod [--like "auth ec2"]
+#   --plan-only  decision + module mapping, no LLM call
+#   --force      overwrite an existing inputs.hcl
+#   --regen      after a verified edit, also re-run whole-file generation
+#   --freeform   allow generation when the repo has no module for the component (unverified fields)
 
-# Explore your repo
-python cli.py <repo> stats                          # repo statistics
-python cli.py <repo> catalog                        # list all reusable modules
-python cli.py <repo> search <query>                 # hybrid search
-python cli.py <repo> outline <file>                 # file structure
-python cli.py <repo> imports <file>                 # dependency graph
-python cli.py <repo> related <file>                 # related files
-python cli.py <repo> plan <intent>                  # plan without generating
+# Explore your repo (no LLM)
+terra-pilot <repo> stats                            # repo statistics
+terra-pilot <repo> catalog                          # list all reusable modules
+terra-pilot <repo> search <query>                   # hybrid search
+terra-pilot <repo> find <symbol> [--kind resource]  # symbol lookup
+terra-pilot <repo> outline <file>                   # file structure
+terra-pilot <repo> imports <file>                   # what a file depends on
+terra-pilot <repo> importers <module-dir>           # what depends on a module
+terra-pilot <repo> related <file>                   # related files
+terra-pilot <repo> plan <intent>                    # reuse-vs-write decision
+terra-pilot <repo> list ec2 --project billing --where instance_type=t3.large   # component inventory
+terra-pilot <repo> livecheck                        # gateway connectivity check
 ```
 
 ## 🧪 Testing
 
-```bash
-# Zero-dep tests (run anywhere, no GPU/API needed)
-python tests/test_index.py        # 15/15 structural index checks
-python tests/test_planner.py      # catalog + planning checks
-python tests/test_borrowed.py     # integration checks
+Everything runs offline. `compose()` is tested end to end against a stdlib fake OpenAI-compatible
+gateway (`tests/fake_gateway.py`), and external tools (terragrunt, checkov, ...) are faked with
+shell scripts.
 
-# Full pipeline test (requires LLM API key)
-python cli.py fixtures/myrepo compose "deploy an ec2 for billing nonprod like auth"
+```bash
+pip install -e .
+for f in tests/test_*.py; do python "$f"; done
 ```
+
+| Suite | Covers |
+|-------|--------|
+| `test_index` / `test_planner` / `test_root_schema` / `test_borrowed` | parser, index, catalog, planner, agent tools |
+| `test_compose_e2e` | reuse create, `--apply`, net-new refusal, edit-set mutations, `--regen`, write-time safety, all three emitters |
+| `test_commands` | outline / find / imports / importers / related / search / list / livecheck, env-dir resolution |
+| `test_validate` | fmt → sanity → module lint → validate/plan/checkov gate |
+| `test_live_wiring` | embed/rerank HTTP request shapes and default routing |
+| `test_data_tools` | CPT dataset, local generator (tiny model), PySpark pipelines (skip if torch / Java are absent) |
+
+Bigger checks that need the TerraDS data: `python stress_test.py` (edge cases + random repos),
+`python quality_sweep.py` (are the reuse/write *decisions* right on 100+ real repos?).
 
 ## 🗺️ Roadmap
 
@@ -244,7 +267,7 @@ python cli.py fixtures/myrepo compose "deploy an ec2 for billing nonprod like au
 - [x] **Multi-backend LLM support** — DeepSeek, OpenAI, local models
 - [x] **Local embedding & reranking** — vLLM + custom reranker server
 - [x] **Zero-dep offline mode** — stdlib parser + BM25, no GPU needed
-- [ ] **Root schema extraction** — parse `root.hcl` to understand directory conventions automatically
+- [x] **Root schema extraction** — parse `root.hcl` to understand directory conventions automatically
 - [ ] **LlamaIndex integration** — pluggable indexing & retrieval framework
 - [ ] **Multi-cloud support** — Azure, GCP module catalogs
 - [ ] **Web UI** — browser-based compose interface
@@ -257,12 +280,10 @@ python cli.py fixtures/myrepo compose "deploy an ec2 for billing nonprod like au
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ```bash
-# Fork → Clone → Branch → PR
 git checkout -b feature/my-feature
 # make changes
-python tests/test_index.py  # make sure tests pass
+for f in tests/test_*.py; do python "$f"; done
 git commit -m "feat: add my feature"
-git push origin feature/my-feature
 ```
 
 ## 📄 License
