@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [master]
 
-env:
-  PYTHONPATH: src
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -24,16 +21,27 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Run zero-dep tests
-        run: python tests/test_index.py
+      # The src/ restructure silently lost symbols twice; undefined names fail the build.
+      - name: Lint (undefined names)
+        run: pip install ruff && ruff check --select F821,F811,F823 src tests data_pipeline cli.py
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      # The core install has no dependencies: these suites must pass on the bare stdlib.
+      - name: Install (zero dependencies)
+        run: pip install -e .
 
-      - name: Run full test suite
+      - name: Zero-dependency tests
         run: |
-          python tests/test_index.py
-          python tests/test_planner.py
-          python tests/test_borrowed.py
-          python tests/test_root_schema.py
-          python tests/test_live_wiring.py
+          for f in tests/test_index.py tests/test_planner.py tests/test_root_schema.py \
+                   tests/test_commands.py tests/test_compose_e2e.py tests/test_validate.py \
+                   tests/test_data_tools.py; do
+            echo "::group::$f"; python "$f"; echo "::endgroup::"
+          done
+
+      - name: Install optional extras
+        run: pip install -e ".[full]"
+
+      - name: Full test suite
+        run: |
+          for f in tests/test_*.py; do
+            echo "::group::$f"; python "$f"; echo "::endgroup::"
+          done

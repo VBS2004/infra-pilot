@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "terra-pilot"
 version = "0.1.0"
@@ -26,22 +30,23 @@ classifiers = [
     "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Code Generators",
     "Topic :: System :: Systems Administration",
 ]
-dependencies = [
-    "pyspark>=4.2.0",
-]
+# Zero runtime dependencies: the stdlib parser + BM25 path always works.
+dependencies = []
+
+[project.scripts]
+terra-pilot = "terra_pilot.main:main"
 
 [project.urls]
-Homepage = "https://github.com/vbs2004/terra-pilot"
-Documentation = "https://github.com/vbs2004/terra-pilot#readme"
-Repository = "https://github.com/vbs2004/terra-pilot"
-Issues = "https://github.com/vbs2004/terra-pilot/issues"
+Homepage = "https://github.com/VBS2004/infra-pilot"
+Documentation = "https://github.com/VBS2004/infra-pilot#readme"
+Repository = "https://github.com/VBS2004/infra-pilot"
+Issues = "https://github.com/VBS2004/infra-pilot/issues"
 
 [project.optional-dependencies]
 full = [
@@ -51,8 +56,26 @@ full = [
     "numpy>=1.26",
     "sentence-transformers>=3.0",
 ]
+# PySpark data pipelines over TerraDS (see data_pipeline/). Needs Java 17.
+data = [
+    "pyspark>=4.2.0",
+    "pandas>=2.0",
+    "pyarrow>=15",
+]
+# Air-gapped local generation (LOCAL_MODEL) and the model-tooling tests.
+local = [
+    "torch>=2.2",
+    "transformers>=4.40",
+    "tokenizers>=0.19",
+]
 reranker = [
     "fastapi>=0.100",
     "uvicorn>=0.20",
     "sentence-transformers>=3.0",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/terra_pilot"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/terra_pilot", "README.md", "LICENSE", "pyproject.toml"]

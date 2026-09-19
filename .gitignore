@@ -26,9 +26,10 @@ build/
 __MACOSX/
 Thumbs.db
 
-# Environment variables
+# Environment variables (.env.example is the tracked template)
 .env
 .env.local
+!.env.example
 
 # Embedding cache
 .infinity_cache/
