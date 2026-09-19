@@ -48,7 +48,7 @@ started.
 
 | Area | Evidence |
 |------|----------|
-| Test suites | **294 checks, 9 files, all pass** with no env setup. The 7 stdlib-safe files also pass in a venv with nothing installed |
+| Test suites | **294 checks in 9 default suites, all pass** (+7 in the opt-in real-AWS suite) with no env setup. The 7 stdlib-safe files also pass in a venv with nothing installed |
 | `compose` end to end | reuse create, dry-run, `--apply`, overwrite rules, NL intent → generation, `--plan-only`, exit codes; against a fake gateway |
 | Mutations | deterministic scalar set (zero LLM calls), LLM edit-set `add` with scope guard, no-op refusal, missing-component refusal, `--regen`, edit of a component whose module is missing |
 | Write-time safety | truncated output and an unterminated string (braces balanced) are both refused; TODO placeholders warn |
@@ -75,6 +75,13 @@ started.
    stand-in binary. Note tflint exits non-zero on *any* finding, including warnings, so a net-new
    module lacking `required_version` fails T1. tfsec is on `PATH` only in a login shell
    (`/home/linuxbrew/.linuxbrew/bin`), and tfsec itself is being folded into Trivy.
+   **Real AWS provider check (opt-in, `TP_REAL_AWS=1 python tests/test_real_aws_e2e.py`, ~700 MB
+   download, no AWS account touched):** compose → apply → the real online gate against the real
+   `hashicorp/aws` provider. A valid generation passes validate, plan and plan→json and plans exactly one
+   `aws_instance`; a generation that omits required inputs fails at plan. It uses dummy credentials with
+   the provider `skip_*` flags, a local backend, and `tests/data/root_offline.hcl`. The shipped
+   `fixtures/myrepo/root.hcl` alone is not runnable (S3 backend with no backend block, `inputs.hcl` not
+   wired in).
 3. **`tf-modules` / `tf-flat` placement is evidence-based now, but only heuristically**: it recognises
    `environments/ envs/ env/ live/ stacks/ deployments/` env roots. Exotic layouts (nested stacks,
    workspaces) fall back to `<env>/<component>/main.tf`.
