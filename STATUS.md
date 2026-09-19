@@ -25,6 +25,13 @@ started.
 
 ### Defects found *by* the new tests (none were in the original list)
 
+- **Found by running real terragrunt (2026-09-19):** `terragrunt plan -out plan` breaks on current
+  terragrunt (terraform receives `-out` with no argument) -> now `-input=false -out=plan`; `plan` could
+  **hang forever** on an interactive variable prompt -> stdin is closed and `-input=false` set;
+  `plan.json` was **not valid JSON** because terragrunt's stderr log lines were mixed in -> stdout only,
+  and the JSON is validated before it is written; generated `inputs.hcl` was usually not canonical
+  -> `--apply` now formats just the file it wrote (`terragrunt hcl fmt --file`).
+
 - **Every compose on an existing env-tier wrote to `auth/aws/auth_auth_prod/…`** (env resolved to the
   directory name, then the project prefix was added again). This broke `--apply` and made every
   mutation report "component does not exist". Fixed in `paths.env_dir`.
@@ -41,7 +48,7 @@ started.
 
 | Area | Evidence |
 |------|----------|
-| Test suites | **274 checks, 9 files, all pass** with no env setup. The 7 stdlib-safe files also pass in a venv with nothing installed |
+| Test suites | **287 checks, 9 files, all pass** with no env setup. The 7 stdlib-safe files also pass in a venv with nothing installed |
 | `compose` end to end | reuse create, dry-run, `--apply`, overwrite rules, NL intent → generation, `--plan-only`, exit codes; against a fake gateway |
 | Mutations | deterministic scalar set (zero LLM calls), LLM edit-set `add` with scope guard, no-op refusal, missing-component refusal, `--regen`, edit of a component whose module is missing |
 | Write-time safety | truncated output and an unterminated string (braces balanced) are both refused; TODO placeholders warn |
@@ -60,8 +67,9 @@ started.
    values reproduced), deterministic scalar update (zero edit-planner calls), LLM edit-set `add`
    (appended, verified), and net-new refusal. Output *quality* across many requests is unmeasured;
    that is the §2 evaluation harness.
-2. **No real terragrunt/terraform/checkov/tflint** on this machine. `validate.py` is verified
-   against stand-in binaries (argv, exit codes, ordering), not against the real tools.
+2. **checkov/tflint/tfsec/docker are still untested for real** (not installed). Real **terragrunt
+   and terraform are now verified** (2026-09-19): fmt check/fix, and the online tier
+   validate → plan → `show -json` on a built-in `terraform_data` module (no provider or credentials).
 3. **`tf-modules` / `tf-flat` placement is evidence-based now, but only heuristically**: it recognises
    `environments/ envs/ env/ live/ stacks/ deployments/` env roots. Exotic layouts (nested stacks,
    workspaces) fall back to `<env>/<component>/main.tf`.
@@ -82,7 +90,7 @@ started.
 | A | `tf-modules` / `tf-flat` file placement (weak #3) | **done**: follows the repo's own layout (`envs/dev/main.tf` → new `envs/dev/<component>.tf`; component sub-dirs; flat → `<repo>/<component>.tf`). 300 targets over 150 real repos, none outside the repo |
 | B | `plan` reuse rule too loose (weak #4) | **done**: modules scored on resource-type words, generic words ignored, short phrases need half their words covered. Strict 94.5–97.5% (was 91–94%), false reuse 1.0–1.5% |
 | C | Lost-symbol lint in CI | **done**: `ruff --select F821,F811,F823` runs before the tests |
-| D | Live `compose` with a real key; real terragrunt for `validate.py` | **live compose done** (above). Real terragrunt still not installed |
+| D | Live `compose` with a real key; real terragrunt for `validate.py` | **both done**. checkov/tflint still unverified |
 | E | Full 62k-archive Spark run | **done**: 62,407 archives → 1,071,292 files → 609,417 unique in 5 m 14 s (`data/terrads_files.parquet`, 409 MB). MinHash near-dup still open |
 | F | Commit the work in logical chunks | waiting for your go-ahead |
 

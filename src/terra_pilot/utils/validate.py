@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import os
 import shutil
 import subprocess
@@ -63,9 +64,14 @@ class GateResult:
         return "\n".join(lines)
 
 
-def _run(cmd: List[str], cwd: Optional[str] = None, timeout: int = DEFAULT_TIMEOUT):
+def _run(cmd: List[str], cwd: Optional[str] = None, timeout: int = DEFAULT_TIMEOUT,
+         stdout_only: bool = False):
     try:
-        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        # stdin is closed so a tool can never block on an interactive prompt
+        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout,
+                           stdin=subprocess.DEVNULL)
+        if stdout_only:
+            return p.returncode, (p.stdout or "")
         return p.returncode, (p.stdout or "") + (p.stderr or "")
     except FileNotFoundError as e:
         return 127, f"binary not found: {e}"
@@ -218,7 +224,7 @@ def terragrunt_validate(component_dir: str) -> StageResult:
 
 
 def terragrunt_plan(component_dir: str, out_file: str = "plan") -> StageResult:
-    cmd = [TERRAGRUNT_BIN, "plan", "-out", out_file]
+    cmd = [TERRAGRUNT_BIN, "plan", "-input=false", f"-out={out_file}"]
     rc, out = _run(cmd, cwd=component_dir)
     return StageResult("terragrunt plan", ok=(rc == 0), cmd=" ".join(cmd), output=out)
 
@@ -226,9 +232,15 @@ def terragrunt_plan(component_dir: str, out_file: str = "plan") -> StageResult:
 def plan_to_json(component_dir: str, plan_file: str = "plan",
                  json_file: str = "plan.json") -> StageResult:
     cmd = [TERRAGRUNT_BIN, "show", "-json", plan_file]
-    rc, out = _run(cmd, cwd=component_dir)
+    # stdout only: terragrunt's own log lines go to stderr and would corrupt the JSON
+    rc, out = _run(cmd, cwd=component_dir, stdout_only=True)
     if rc != 0:
         return StageResult("plan->json", ok=False, cmd=" ".join(cmd), output=out)
+    try:
+        json.loads(out)
+    except ValueError as e:
+        return StageResult("plan->json", ok=False, cmd=" ".join(cmd),
+                           output=f"`show -json` did not produce valid JSON: {e}\n{out[:300]}")
     try:
         with open(os.path.join(component_dir, json_file), "w", encoding="utf-8") as fh:
             fh.write(out)
