@@ -48,7 +48,7 @@ started.
 
 | Area | Evidence |
 |------|----------|
-| Test suites | **287 checks, 9 files, all pass** with no env setup. The 7 stdlib-safe files also pass in a venv with nothing installed |
+| Test suites | **294 checks, 9 files, all pass** with no env setup. The 7 stdlib-safe files also pass in a venv with nothing installed |
 | `compose` end to end | reuse create, dry-run, `--apply`, overwrite rules, NL intent → generation, `--plan-only`, exit codes; against a fake gateway |
 | Mutations | deterministic scalar set (zero LLM calls), LLM edit-set `add` with scope guard, no-op refusal, missing-component refusal, `--regen`, edit of a component whose module is missing |
 | Write-time safety | truncated output and an unterminated string (braces balanced) are both refused; TODO placeholders warn |
@@ -67,9 +67,14 @@ started.
    values reproduced), deterministic scalar update (zero edit-planner calls), LLM edit-set `add`
    (appended, verified), and net-new refusal. Output *quality* across many requests is unmeasured;
    that is the §2 evaluation harness.
-2. **checkov/tflint/tfsec/docker are still untested for real** (not installed). Real **terragrunt
-   and terraform are now verified** (2026-09-19): fmt check/fix, and the online tier
-   validate → plan → `show -json` on a built-in `terraform_data` module (no provider or credentials).
+2. **`validate.py` is verified against the real tools, except docker.** terragrunt + terraform
+   (fmt check/fix; validate → plan → `show -json`), tflint 0.64, tfsec 1.28 and checkov 3.3 all run
+   through the gate and return real verdicts (`tests/data/aws_s3_bucket_plan.json` is a real terraform
+   plan of an unencrypted bucket; checkov fails it, tfsec fails the same bucket, tflint fails an
+   untyped variable, each passes a clean input). The `--docker` command shapes are only checked with a
+   stand-in binary. Note tflint exits non-zero on *any* finding, including warnings, so a net-new
+   module lacking `required_version` fails T1. tfsec is on `PATH` only in a login shell
+   (`/home/linuxbrew/.linuxbrew/bin`), and tfsec itself is being folded into Trivy.
 3. **`tf-modules` / `tf-flat` placement is evidence-based now, but only heuristically**: it recognises
    `environments/ envs/ env/ live/ stacks/ deployments/` env roots. Exotic layouts (nested stacks,
    workspaces) fall back to `<env>/<component>/main.tf`.
@@ -90,7 +95,7 @@ started.
 | A | `tf-modules` / `tf-flat` file placement (weak #3) | **done**: follows the repo's own layout (`envs/dev/main.tf` → new `envs/dev/<component>.tf`; component sub-dirs; flat → `<repo>/<component>.tf`). 300 targets over 150 real repos, none outside the repo |
 | B | `plan` reuse rule too loose (weak #4) | **done**: modules scored on resource-type words, generic words ignored, short phrases need half their words covered. Strict 94.5–97.5% (was 91–94%), false reuse 1.0–1.5% |
 | C | Lost-symbol lint in CI | **done**: `ruff --select F821,F811,F823` runs before the tests |
-| D | Live `compose` with a real key; real terragrunt for `validate.py` | **both done**. checkov/tflint still unverified |
+| D | Live `compose` with a real key; real terragrunt/tflint/tfsec/checkov for `validate.py` | **done** (docker path excepted) |
 | E | Full 62k-archive Spark run | **done**: 62,407 archives → 1,071,292 files → 609,417 unique in 5 m 14 s (`data/terrads_files.parquet`, 409 MB). MinHash near-dup still open |
 | F | Commit the work in logical chunks | waiting for your go-ahead |
 

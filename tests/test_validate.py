@@ -318,11 +318,53 @@ def test_real_online_gate_if_terragrunt_installed():
         check("plan.json is valid JSON describing the resource", False, str(e))
 
 
+def test_real_lint_and_scan_tools_if_installed():
+    print("\n# real tflint / tfsec / checkov (each skipped when not installed)")
+    brew = "/home/linuxbrew/.linuxbrew/bin"          # Homebrew tools are on PATH only in login shells
+    os.environ["PATH"] = REAL_PATH + (os.pathsep + brew if os.path.isdir(brew) else "")
+    repo = tempfile.mkdtemp(prefix="tp_r_")
+    bad = tempfile.mkdtemp(prefix="tp_bad_")
+    with open(os.path.join(bad, "main.tf"), "w") as f:
+        f.write('variable "unused" {}\nresource "aws_s3_bucket" "b" {\n  bucket = "x"\n}\n')
+    good = tempfile.mkdtemp(prefix="tp_good_")
+    with open(os.path.join(good, "main.tf"), "w") as f:
+        f.write('terraform {\n  required_version = ">= 1.5"\n}\nvariable "n" {\n  type = string\n}\n'
+                'resource "terraform_data" "x" {\n  input = var.n\n}\n')
+    if shutil.which("tflint"):
+        r = v.tflint_module(repo, bad, use_docker=False)
+        check("tflint fails a module with an untyped variable", not r.ok and not r.skipped and "terraform_typed_variables" in r.output, r.output[-200:])
+        check("tflint passes a well-formed module", v.tflint_module(repo, good, use_docker=False).ok)
+    else:
+        print("  skip tflint not installed")
+    if shutil.which("tfsec"):
+        r = v.tfsec_module(repo, bad, use_docker=False)
+        check("tfsec fails an insecure S3 bucket", not r.ok and not r.skipped and "aws-s3" in r.output, r.output[-200:])
+        check("tfsec passes a clean module", v.tfsec_module(repo, good, use_docker=False).ok)
+    else:
+        print("  skip tfsec not installed")
+    if shutil.which("checkov"):
+        comp = tempfile.mkdtemp(prefix="tp_ck_")
+        shutil.copy(os.path.join(harness.HERE, "data", "aws_s3_bucket_plan.json"), os.path.join(comp, "plan.json"))
+        r = v.checkov_plan(repo, comp, use_docker=False)
+        check("checkov fails a real terraform plan of an unencrypted bucket",
+              not r.ok and not r.skipped and "FAILED for resource: aws_s3_bucket.b" in r.output, r.output[-200:])
+        with open(os.path.join(comp, "plan.json"), "w") as f:
+            f.write('{"format_version":"1.2","planned_values":{"root_module":{}},"resource_changes":[],"configuration":{"root_module":{}}}')
+        check("checkov passes a plan with nothing to flag", v.checkov_plan(repo, comp, use_docker=False).ok)
+        g = v.gate(component(), repo_root=repo, module_dir=bad, use_docker=False)
+        check("gate T1 reports the failing module lint", not g.ok and any(
+            s.name in ("tflint", "tfsec") and not s.ok and not s.skipped for s in g.stages))
+    else:
+        print("  skip checkov not installed")
+    os.environ["PATH"] = REAL_PATH
+
+
 if __name__ == "__main__":
     try:
         for fn in [test_hcl_text_problems, test_hcl_sanity_stage, test_fmt_stage, test_gate_offline,
                    test_gate_online_chain, test_module_lint_tier_and_docker_shape,
-                   test_cli_and_apply_time_fmt_report, test_real_terragrunt_if_installed, test_real_online_gate_if_terragrunt_installed]:
+                   test_cli_and_apply_time_fmt_report, test_real_terragrunt_if_installed, test_real_online_gate_if_terragrunt_installed,
+                   test_real_lint_and_scan_tools_if_installed]:
             fn()
     finally:
         os.environ["PATH"] = REAL_PATH
