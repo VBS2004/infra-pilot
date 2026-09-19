@@ -71,6 +71,8 @@ def complete(
     }
     if response_format is not None:
         payload["response_format"] = response_format
+    if config.THINKING:
+        payload["thinking"] = {"type": config.THINKING}
 
     last_err = None
     for attempt in range(retries + 1):

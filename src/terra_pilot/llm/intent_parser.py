@@ -3,7 +3,7 @@
 (Renamed from planner.py: the repo already has a planner.py with a `Planner`
 class that does reuse-vs-write decisions; this module only does NL -> JSON.)
 
-Uses generator.complete_json (MiniMax-M2) to emit a strict JSON intent that the
+Uses generator.complete_json to emit a strict JSON intent that the
 rest of the compose loop consumes. The model proposes; deterministic
 post-processing normalizes/validates and NEVER does path math (paths.py owns
 that). Project/env/component are later checked against the real tree.
@@ -11,8 +11,8 @@ that). Project/env/component are later checked against the real tree.
 The intent schema (all keys always present; unknowns -> null):
     {
       "resource_type": "s3" | "ec2" | "rds" | ...,   # the THING TO CREATE
-      "project":       "payments_pro" | "optimus" | null,   # DESTINATION project
-      "env":           "prod" | "dev" | "payments_pro" | null,  # DESTINATION env
+      "project":       "billing" | "auth" | null,   # DESTINATION project
+      "env":           "prod" | "dev" | "billing_nonprod" | null,  # DESTINATION env
       "name":          "short-logical-name" | null,
       "region":        "ap-south-1" | null,
       "specifics":     { ... free-form requested settings ... },
@@ -202,7 +202,7 @@ def missing_fields(intent: Dict[str, object]) -> List[str]:
 if __name__ == "__main__":
     import sys
     req = sys.argv[1] if len(sys.argv) > 1 else \
-        "Create an S3 bucket for payments_pro prod with versioning enabled"
+        "Create an S3 bucket for billing prod with versioning enabled"
     out = parse_intent(req)
     print(json.dumps(out, indent=2))
     miss = missing_fields(out)

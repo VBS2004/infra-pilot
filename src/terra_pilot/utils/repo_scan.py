@@ -1,7 +1,7 @@
 """
 Fast, gitignore-aware repo file listing.
 
-Borrowed pattern from legacy_coder (index._list_project_files): use ripgrep
+Use ripgrep
 `rg --files` when present (honours .gitignore, very fast), fall back to an
 os.walk with sensible ignores. Filtered to HCL/Terragrunt extensions.
 """

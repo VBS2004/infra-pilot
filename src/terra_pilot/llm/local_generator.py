@@ -1,14 +1,14 @@
 """local_generator.py - air-gapped, transformers-only drop-in for generator.complete.
 
 Loads a local HuggingFace causal LM directly with transformers — NO gateway,
-NO network — for an air-gapped GPU box.
+NO network. Runs on CUDA when available, else CPU (override with LOCAL_DEVICE).
 
 Usage:
     export LOCAL_MODEL=/path/to/model   # local HF weights dir
     export TRANSFORMERS_OFFLINE=1
     export HF_HUB_OFFLINE=1
-    export LLM_EMBED_ENABLED=0          # embedder calls the gateway -> off
-    export LLM_RERANK_ENABLED=0         # reranker calls the gateway -> off
+    export LLM_EMBED_BACKEND=none       # no embedding server -> BM25-only
+    unset LLM_RERANK_GATEWAY_BASE       # no rerank server
     python cli.py "$REPO" compose "..."
 """
 from __future__ import annotations
@@ -36,8 +36,12 @@ def _load() -> None:
     if not os.path.isdir(path):
         raise RuntimeError(f"LOCAL_MODEL is not a directory: {path}")
 
-    # bf16 on Ada (L4) is fine; fall back to fp16 if bf16 is unsupported.
-    dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    device = os.environ.get("LOCAL_DEVICE") or ("cuda" if torch.cuda.is_available() else "cpu")
+    if device.startswith("cuda"):
+        # bf16 where supported (Ampere+), else fp16.
+        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    else:
+        dtype = torch.float32
 
     _TOK = AutoTokenizer.from_pretrained(
         path, local_files_only=True, trust_remote_code=True
@@ -49,7 +53,7 @@ def _load() -> None:
         torch_dtype=dtype,
         low_cpu_mem_usage=True,   # stream weights in; avoids a 2x RAM spike on load
     )
-    _MODEL.to("cuda")
+    _MODEL.to(device)
     _MODEL.eval()
 
 

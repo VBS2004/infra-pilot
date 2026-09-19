@@ -3,7 +3,7 @@
     export OPENAI_API_KEY=<your-api-key>
     export LLM_GATEWAY_BASE=https://api.deepseek.com   # default
     export LLM_GEN_MODEL=deepseek-chat                 # default
-    python cli.py fixtures/payments livecheck
+    python cli.py fixtures/myrepo livecheck
 """
 from __future__ import annotations
 
@@ -80,5 +80,5 @@ def main(repo: str) -> int:
 
 
 if __name__ == "__main__":
-    repo = sys.argv[1] if len(sys.argv) > 1 else "fixtures/payments"
+    repo = sys.argv[1] if len(sys.argv) > 1 else "fixtures/myrepo"
     sys.exit(main(repo))

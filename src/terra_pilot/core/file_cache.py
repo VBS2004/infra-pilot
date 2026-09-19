@@ -1,7 +1,7 @@
 """
 In-session file content cache with mtime invalidation + LRU eviction.
 
-Borrowed pattern from legacy_coder (file_cache.py), trimmed to what the indexer
+A small mtime/size file cache, trimmed to what the indexer
 needs: avoid redundant disk reads while building / refreshing the index, and
 stay fresh by checking mtime.
 """

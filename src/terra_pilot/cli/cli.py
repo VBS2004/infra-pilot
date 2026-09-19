@@ -1,4 +1,4 @@
-"""CLI for the payments indexer prototype.
+"""CLI for terra-pilot.
 
 Usage:
     python cli.py <repo> stats
@@ -14,8 +14,7 @@ Usage:
     python cli.py <repo> compose <intent...>    # NL -> compose a component (dry-run)
     python cli.py <repo> compose --resource-type R --project P --env E [--apply] [--force]
 
-These map onto the legacy_coder tool wrappers (index_outline / index_search /
-index_related) plus the new hybrid `search`.
+`outline` / `find` / `imports` / `related` / `search` mirror the agent tool wrappers.
 """
 import json
 import sys

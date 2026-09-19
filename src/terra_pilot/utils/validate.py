@@ -1,29 +1,19 @@
-"""validate.py - validation gate for composed Terragrunt components.
-
-Faithfully mirrors the repo's Makefile pipeline (module.mk), AWS-only for the
-MVP (onprem vsphere/xen out of scope per the manager).
-
-What the repo actually does:
-  - fmt check  : `cd <component>; terragrunt hcl fmt --check`         (offline)
-  - validate   : `cd <component>; terragrunt validate`               (online: triggers
-                  init -> providers via the artifactory net-mirror + AWS creds)
-  - plan       : `cd <component>; terragrunt plan -out plan`          (online)
-  - plan->json : `terragrunt show -json plan > plan.json`
-  - checkov    : docker checkov_custom -ck plan -cf infra/checkov.yaml -f plan.json
-                  -> the REAL input-level gate. checkov.yaml's `plan` profile is
-                     `soft-fail: true` EXCEPT a `hard-fail-on` list that is mostly
-                     tagging + naming custom policies.
-  - tflint/tfsec: run on MODULES (infra/modules/**/*.tf) via artifactory docker
-                  images with infra/tflint.hcl / infra/tfsec.yaml. Only relevant
-                  for a NET-NEW module; reused modules are already green.
+"""validate.py - validation gate for composed Terraform/Terragrunt components.
 
 Tiers exposed by `gate(...)`:
-  T0 offline : fmt check + light HCL sanity on the generated files.
+  T0 offline : fmt check (terragrunt hcl fmt, or terraform fmt for plain
+               Terraform) + HCL sanity on the generated files. No credentials.
   T1 module  : tflint + tfsec on a net-new module dir (optional).
-  T2 online  : terragrunt validate -> plan -> checkov plan scan.
+  T2 online  : validate -> plan -> plan.json -> checkov plan scan. Needs cloud
+               credentials and a provider mirror.
 
-No third-party deps (stdlib only); uses python-hcl2 for the sanity parse only
-if it happens to be importable, else a brace-balance heuristic.
+`hcl_text_problems` is the stdlib bracket/string checker `compose.write_to_tree`
+runs before writing anything, so `--apply` always passes at least the offline
+sanity tier without any external binary.
+
+Every external tool is optional: a missing binary yields a SKIPPED stage (never
+a silent pass or a crash). Docker images and binaries are overridable through
+env vars; nothing here is specific to one organisation's registry or config.
 """
 from __future__ import annotations
 
@@ -35,21 +25,12 @@ import subprocess
 import sys
 from typing import List, Optional
 
-# Artifactory docker images, straight from module.mk.
-TFLINT_IMAGE = os.environ.get(
-    "TFLINT_IMAGE",
-    "artifactory.acmecorp.com/optimus-docker/terraform-linters/tflint-bundle",
-)
-TFSEC_IMAGE = os.environ.get(
-    "TFSEC_IMAGE",
-    "artifactory.acmecorp.com/optimus-docker/aquasec/tfsec",
-)
-CHECKOV_IMAGE = os.environ.get(
-    "CHECKOV_IMAGE",
-    "artifactory.acmecorp.com/infra-common-docker/library/checkov_custom:latest",
-)
+TFLINT_IMAGE = os.environ.get("TFLINT_IMAGE", "ghcr.io/terraform-linters/tflint:latest")
+TFSEC_IMAGE = os.environ.get("TFSEC_IMAGE", "aquasec/tfsec:latest")
+CHECKOV_IMAGE = os.environ.get("CHECKOV_IMAGE", "bridgecrew/checkov:latest")
 
 TERRAGRUNT_BIN = os.environ.get("TERRAGRUNT_BIN_ENV", "terragrunt")
+TERRAFORM_BIN = os.environ.get("TERRAFORM_BIN_ENV", "terraform")
 DOCKER_BIN = os.environ.get("DOCKER_BIN_ENV", "docker")
 DEFAULT_TIMEOUT = int(os.environ.get("VALIDATE_TIMEOUT", "900"))
 
@@ -100,17 +81,109 @@ def _have(bin_name: str) -> bool:
 # T0 - offline
 # --------------------------------------------------------------------------- #
 def fmt_check(component_dir: str, *, fix: bool = False) -> StageResult:
-    cmd = [TERRAGRUNT_BIN, "hcl", "fmt"] + ([] if fix else ["--check"])
-    if not _have(TERRAGRUNT_BIN):
+    """`terragrunt hcl fmt` for a Terragrunt component, `terraform fmt` otherwise."""
+    if os.path.exists(os.path.join(component_dir, "terragrunt.hcl")):
+        binary, cmd = TERRAGRUNT_BIN, [TERRAGRUNT_BIN, "hcl", "fmt"]
+        cmd += [] if fix else ["--check"]
+    else:
+        binary, cmd = TERRAFORM_BIN, [TERRAFORM_BIN, "fmt"]
+        cmd += [] if fix else ["-check"]
+    if not _have(binary):
         return StageResult("fmt", ok=False, skipped=True, cmd=" ".join(cmd),
-                           note="terragrunt not on PATH")
+                           note=f"{binary} not on PATH")
     rc, out = _run(cmd, cwd=component_dir, timeout=120)
     return StageResult("fmt", ok=(rc == 0), cmd=" ".join(cmd), output=out)
 
 
+def format_file(path: str) -> StageResult:
+    """Canonically format ONE file (never the whole directory, so files we did not
+    write are left alone): `terragrunt hcl fmt --file` next to a terragrunt.hcl,
+    else `terraform fmt <file>`."""
+    d, name = os.path.split(os.path.abspath(path))
+    if os.path.exists(os.path.join(d, "terragrunt.hcl")):
+        binary, cmd = TERRAGRUNT_BIN, [TERRAGRUNT_BIN, "hcl", "fmt", "--file", name]
+    else:
+        binary, cmd = TERRAFORM_BIN, [TERRAFORM_BIN, "fmt", name]
+    if not _have(binary):
+        return StageResult("format", ok=False, skipped=True, cmd=" ".join(cmd),
+                           note=f"{binary} not on PATH")
+    rc, out = _run(cmd, cwd=d, timeout=120)
+    return StageResult("format", ok=(rc == 0), cmd=" ".join(cmd), output=out)
+
+
+def hcl_text_problems(text: str) -> List[str]:
+    """Bracket/quote check for HCL text: skips comments, heredocs and string
+    contents (but follows `${...}` interpolation). Returns a list of problems,
+    empty when the structure is sound."""
+    import re
+    problems: List[str] = []
+    stack: list = []          # ("str", line) | ("br", char, line)
+    pairs = {"{": "}", "[": "]", "(": ")"}
+    i, n, line = 0, len(text), 1
+    while i < n:
+        c = text[i]
+        top = stack[-1] if stack else None
+        if top and top[0] == "str":
+            if c == "\\":
+                i += 2
+                continue
+            if c == "\n":
+                line += 1
+            if c == '"':
+                stack.pop()
+            elif text.startswith(("${", "%{"), i):
+                stack.append(("br", "{", line))
+                i += 1
+            i += 1
+            continue
+        if c == "\n":
+            line += 1
+        elif c == "#" or text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            if j < 0:
+                problems.append(f"line {line}: unterminated /* comment")
+                return problems
+            line += text.count("\n", i, j)
+            i = j + 2
+            continue
+        elif text.startswith("<<", i):
+            m = re.match(r"<<-?([A-Za-z_]\w*)[ \t]*\r?\n", text[i:])
+            if m:
+                marker = m.group(1)
+                end = re.search(r"^[ \t]*" + re.escape(marker) + r"[ \t]*\r?$",
+                                text[i + m.end():], re.M)
+                if not end:
+                    problems.append(f"line {line}: unterminated heredoc <<{marker}")
+                    return problems
+                stop = i + m.end() + end.end()
+                line += text.count("\n", i, stop)
+                i = stop
+                continue
+        elif c == '"':
+            stack.append(("str", line))
+        elif c in pairs:
+            stack.append(("br", c, line))
+        elif c in "}])":
+            if not stack or stack[-1][0] != "br" or pairs[stack[-1][1]] != c:
+                problems.append(f"line {line}: unexpected '{c}'")
+                return problems
+            stack.pop()
+        i += 1
+    for item in stack:
+        if item[0] == "str":
+            problems.append(f"line {item[1]}: unterminated string")
+        else:
+            problems.append(f"line {item[2]}: unclosed '{item[1]}'")
+    return problems
+
+
 def hcl_sanity(*paths: str) -> StageResult:
-    """Offline HCL sanity: real parse via python-hcl2 if importable, else a
-    balanced braces/brackets/parens heuristic."""
+    """Offline HCL sanity: real parse via python-hcl2 if importable, else the
+    stdlib bracket/string checker."""
     try:
         import hcl2  # type: ignore
         have_hcl2 = True
@@ -130,11 +203,9 @@ def hcl_sanity(*paths: str) -> StageResult:
                 problems.append(f"{name}: parse error: {e}")
         else:
             text = open(path, encoding="utf-8", errors="replace").read()
-            for pair in ("{}", "[]", "()"):
-                if text.count(pair[0]) != text.count(pair[1]):
-                    problems.append(f"{name}: unbalanced '{pair[0]}' vs '{pair[1]}'")
+            problems += [f"{name}: {p}" for p in hcl_text_problems(text)]
     return StageResult("hcl_sanity", ok=(not problems), output="\n".join(problems),
-                       note="hcl2" if have_hcl2 else "brace-balance heuristic")
+                       note="hcl2" if have_hcl2 else "stdlib bracket/string check")
 
 
 # --------------------------------------------------------------------------- #
@@ -168,24 +239,28 @@ def plan_to_json(component_dir: str, plan_file: str = "plan",
 
 def checkov_plan(repo_root: str, component_dir: str, *, plan_json: str = "plan.json",
                  project_checkov: Optional[str] = None, use_docker: bool = True) -> StageResult:
-    """checkov PLAN scan, like module.mk's checkov_scan(plan). The image already
-    applies checkov.yaml, so its exit code encodes the hard-fail-on verdict."""
-    infra_checkov = os.path.join(repo_root, "infra", "checkov.yaml")
+    """checkov scan of the plan JSON. Uses `<repo>/checkov.yaml` (or
+    `<repo>/infra/checkov.yaml`) when present; the exit code is the verdict."""
+    cfg = next((p for p in (os.path.join(repo_root, "checkov.yaml"),
+                            os.path.join(repo_root, "infra", "checkov.yaml"))
+                if os.path.exists(p)), None)
     plan_path = os.path.join(component_dir, plan_json)
     if use_docker and _have(DOCKER_BIN):
-        cmd = [DOCKER_BIN, "run", "--rm",
-               "-v", f"{repo_root}/infra:/infra",
-               "-v", f"{component_dir}:/work",
-               CHECKOV_IMAGE,
-               "/app/scripts/main.sh", "-ck", "plan", "-cf", "/infra/checkov.yaml"]
-        if project_checkov:
-            cmd += ["-cf", project_checkov]
-        cmd += ["-f", f"/work/{plan_json}", "--", "--quiet"]
+        cmd = [DOCKER_BIN, "run", "--rm", "-v", f"{component_dir}:/work"]
+        if cfg:
+            cmd += ["-v", f"{cfg}:/etc/checkov.yaml"]
+        cmd += [CHECKOV_IMAGE, "-f", f"/work/{plan_json}", "--compact", "--quiet"]
+        if cfg:
+            cmd += ["--config-file", "/etc/checkov.yaml"]
     elif _have("checkov"):
-        cmd = ["checkov", "-f", plan_path, "--config-file", infra_checkov, "--compact", "--quiet"]
+        cmd = ["checkov", "-f", plan_path, "--compact", "--quiet"]
+        if cfg:
+            cmd += ["--config-file", cfg]
     else:
         return StageResult("checkov plan", ok=False, skipped=True,
                            note="neither docker nor local checkov available")
+    if project_checkov:
+        cmd += ["--config-file", project_checkov]
     rc, out = _run(cmd)
     return StageResult("checkov plan", ok=(rc == 0), cmd=" ".join(cmd), output=out)
 
@@ -193,15 +268,22 @@ def checkov_plan(repo_root: str, component_dir: str, *, plan_json: str = "plan.j
 # --------------------------------------------------------------------------- #
 # T1 - module lint (only for net-new modules)
 # --------------------------------------------------------------------------- #
+def _config_file(repo_root: str, name: str) -> Optional[str]:
+    return next((p for p in (os.path.join(repo_root, name),
+                             os.path.join(repo_root, "infra", name))
+                 if os.path.exists(p)), None)
+
+
 def tflint_module(repo_root: str, module_dir: str, *, use_docker: bool = True) -> StageResult:
+    cfg = _config_file(repo_root, "tflint.hcl")
     if use_docker and _have(DOCKER_BIN):
-        cmd = [DOCKER_BIN, "run", "--rm",
-               "-v", f"{repo_root}/infra/tflint.hcl:/etc/tflint/tflint.hcl",
-               "-v", f"{module_dir}:/data",
-               TFLINT_IMAGE, "--config", "/etc/tflint/tflint.hcl"]
+        cmd = [DOCKER_BIN, "run", "--rm", "-v", f"{module_dir}:/data"]
+        if cfg:
+            cmd += ["-v", f"{cfg}:/etc/tflint/tflint.hcl"]
+        cmd += [TFLINT_IMAGE] + (["--config", "/etc/tflint/tflint.hcl"] if cfg else [])
         rc, out = _run(cmd)
     elif _have("tflint"):
-        cmd = ["tflint", "--config", os.path.join(repo_root, "infra", "tflint.hcl")]
+        cmd = ["tflint"] + (["--config", cfg] if cfg else [])
         rc, out = _run(cmd, cwd=module_dir)
     else:
         return StageResult("tflint", ok=False, skipped=True, note="no docker/tflint")
@@ -209,13 +291,14 @@ def tflint_module(repo_root: str, module_dir: str, *, use_docker: bool = True) -
 
 
 def tfsec_module(repo_root: str, module_dir: str, *, use_docker: bool = True) -> StageResult:
+    cfg = _config_file(repo_root, "tfsec.yaml")
     if use_docker and _have(DOCKER_BIN):
-        cmd = [DOCKER_BIN, "run", "--rm",
-               "-v", f"{repo_root}/infra/tfsec.yaml:/etc/tfsec/tfsec.yaml",
-               "-v", f"{module_dir}:/src",
-               TFSEC_IMAGE, "--config-file", "/etc/tfsec/tfsec.yaml", "/src"]
+        cmd = [DOCKER_BIN, "run", "--rm", "-v", f"{module_dir}:/src"]
+        if cfg:
+            cmd += ["-v", f"{cfg}:/etc/tfsec/tfsec.yaml"]
+        cmd += [TFSEC_IMAGE] + (["--config-file", "/etc/tfsec/tfsec.yaml"] if cfg else []) + ["/src"]
     elif _have("tfsec"):
-        cmd = ["tfsec", "--config-file", os.path.join(repo_root, "infra", "tfsec.yaml"), module_dir]
+        cmd = ["tfsec"] + (["--config-file", cfg] if cfg else []) + [module_dir]
     else:
         return StageResult("tfsec", ok=False, skipped=True, note="no docker/tfsec")
     rc, out = _run(cmd)
@@ -265,7 +348,7 @@ def gate(component_dir: str, *, repo_root: str, online: bool = False,
 
 
 def _main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Validate a composed Terragrunt component.")
+    ap = argparse.ArgumentParser(description="Validate a composed Terraform/Terragrunt component.")
     ap.add_argument("component_dir")
     ap.add_argument("--repo-root", required=True)
     ap.add_argument("--online", action="store_true",

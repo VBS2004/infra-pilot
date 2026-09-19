@@ -1,7 +1,7 @@
 """
 Resolve the gateway's ACTUAL served model id from GET <base>/v1/models.
 
-vLLM-style servers (the payments gateway) 404 a request whose `model` field does
+vLLM-style servers (vLLM, Infinity) 404 a request whose `model` field does
 not match the served id -- and that id is an opaque path like
 "/app/models/jina-embeddings-v3", not the route slug. This asks the gateway what
 it actually serves and caches the answer, so embeddings + rerank stop 404ing

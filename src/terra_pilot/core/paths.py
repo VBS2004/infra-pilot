@@ -66,8 +66,17 @@ def common_hcl_path(repo_root: str, project: str, provider: str = DEFAULT_PROVID
 
 
 def env_dir(repo_root: str, project: str, env: str, provider: str = DEFAULT_PROVIDER) -> str:
-    """<repo_root>/<project>/<provider>/<project>_<env>/"""
-    return os.path.join(project_dir(repo_root, project, provider), f"{project}_{env}")
+    """<repo_root>/<project>/<provider>/<project>_<env>/
+
+    `env` is normally the short word ('nonprod'), but callers also hold the
+    already-resolved env-tier directory name ('auth_nonprod', from
+    match_env_dir). A name that is an existing directory, or that already carries
+    the project prefix, is used as-is instead of being prefixed a second time
+    (which produced 'auth/aws/auth_auth_nonprod/')."""
+    base = project_dir(repo_root, project, provider)
+    if os.path.isdir(os.path.join(base, env)) or env.startswith(f"{project}_"):
+        return os.path.join(base, env)
+    return os.path.join(base, f"{project}_{env}")
 
 
 def env_config_path(repo_root: str, project: str, env: str, provider: str = DEFAULT_PROVIDER) -> str:
@@ -127,20 +136,62 @@ def load_env_config(repo_root: str, project: str, env: str,
         return _parse_flat_yaml(fh.read())
 
 
+# Directory names plain-Terraform repos use to hold per-environment roots.
+_ENV_ROOTS = ("environments", "envs", "env", "live", "stacks", "deployments")
+
+
+def _has_tf(d: str) -> bool:
+    try:
+        return any(f.endswith(".tf") for f in os.listdir(d))
+    except OSError:
+        return False
+
+
+def _find_plain_env_dir(repo_root: str, project: str, env: str) -> Optional[str]:
+    bases = list(_ENV_ROOTS) + [""]
+    if project:
+        bases += [project] + [os.path.join(project, r) for r in _ENV_ROOTS]
+    for base in bases:
+        cand = os.path.join(repo_root, base, env)
+        if os.path.isdir(cand):
+            return cand
+    return None
+
+
+def plain_tf_target(repo_root: str, kind: str, project: str, env: str, component: str):
+    """Where a plain-Terraform component belongs -> (component_dir, file_path).
+
+    Follows the repo's own evidence instead of a fixed layout:
+      * `<env>/<component>/` already exists            -> its main.tf
+      * env dir holds .tf files and no component dirs  -> `<env>/<component>.tf`
+        (an `envs/dev/main.tf`-style root; a new file never clobbers main.tf)
+      * env dir holds component sub-dirs               -> `<env>/<component>/main.tf`
+      * no such env dir, flat repo                     -> `<repo>/<component>.tf`
+      * no such env dir, module repo                   -> `<env>/<component>/main.tf`
+    """
+    env_dir = _find_plain_env_dir(repo_root, project, env)
+    if env_dir is None:
+        if kind == "tf-flat":
+            return repo_root, os.path.join(repo_root, f"{component}.tf")
+        cdir = os.path.join(repo_root, env, component)
+        return cdir, os.path.join(cdir, "main.tf")
+    cdir = os.path.join(env_dir, component)
+    if os.path.isdir(cdir):
+        return cdir, os.path.join(cdir, "main.tf")
+    subdirs_with_tf = [d for d in os.listdir(env_dir)
+                       if os.path.isdir(os.path.join(env_dir, d))
+                       and _has_tf(os.path.join(env_dir, d))]
+    if _has_tf(env_dir) and not subdirs_with_tf:
+        return env_dir, os.path.join(env_dir, f"{component}.tf")
+    return cdir, os.path.join(cdir, "main.tf")
+
+
 def resolve_plain_tf(repo_root: str, convention: RepoConvention, project: str, env: str, component: str, *,
                      provider: str = DEFAULT_PROVIDER,
                      terraform_module: Optional[str] = None) -> ResolvedComponent:
     repo_root = os.path.abspath(repo_root)
-    
-    if os.path.isdir(os.path.join(repo_root, "environments", env)):
-        cdir = os.path.join(repo_root, "environments", env, component)
-    elif os.path.isdir(os.path.join(repo_root, env)):
-        cdir = os.path.join(repo_root, env, component)
-    elif project and os.path.isdir(os.path.join(repo_root, project, env)):
-        cdir = os.path.join(repo_root, project, env, component)
-    else:
-        cdir = os.path.join(repo_root, env, component)
-        
+    cdir, target = plain_tf_target(repo_root, convention.kind, project, env, component)
+
     msrc = ""
     if terraform_module:
         if os.path.isdir(os.path.join(repo_root, "modules", terraform_module)):
@@ -155,7 +206,7 @@ def resolve_plain_tf(repo_root: str, convention: RepoConvention, project: str, e
         module_source_dir=msrc,
         variables_tf=os.path.join(msrc, "variables.tf") if msrc else "",
         terragrunt_hcl="",
-        inputs_hcl=os.path.join(cdir, "main.tf"),
+        inputs_hcl=target,
         root_hcl="",
         common_hcl="",
         env_config="",

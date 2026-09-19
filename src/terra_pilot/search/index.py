@@ -1,8 +1,8 @@
 """
-Acme Terraform Assistant — dependency-graph-aware structural index (Layer 1).
+terra-pilot — dependency-graph-aware structural index (Layer 1).
 
 This is the net-new, critical-path piece from the design plan: reimplement
-`legacy_coder`'s structural index for HCL/Terragrunt. It produces:
+a structural code index for HCL/Terragrunt. It produces:
 
   * a Symbol table  (resource / module / variable / output / data / locals /
                      provider / terraform / include / dependency / generate +
@@ -14,7 +14,7 @@ This is the net-new, critical-path piece from the design plan: reimplement
         4. output_ref       module.<inst>.<out>  /  dependency.<n>.outputs.<out>
         5. terragrunt       include / dependency / find_in_parent_folders() / inputs.hcl
 
-It exposes the exact interface the legacy_coder tool wrappers depend on:
+It exposes the interface the agent tool wrappers depend on:
 
     idx.find_symbol(query, kind=None)   -> list[(file_path, Symbol)]
     idx.get_file_outline(file_path)     -> list[Symbol] | None
@@ -76,7 +76,7 @@ EDGE_TYPES = ("module_source", "remote_state", "var_ref", "output_ref", "terragr
 class ImportEntry:
     """One dependency edge out of a file.
 
-    `module` keeps backward-compat with legacy_coder's ImportEntry.module: for
+    `module` keeps backward-compat with the older ImportEntry.module: for
     module_source edges it is the resolved module directory key; for other edge
     types it is the most useful target identifier (upstream name, var name, etc).
     """
@@ -329,7 +329,7 @@ class TerraPilotIndex:
             names.append(p.rsplit("/", 1)[1])
         return names
 
-    # ---- public query interface (legacy_coder-compatible) ------------------- #
+    # ---- public query interface (tool-wrapper compatible) ------------------- #
     def find_symbol(self, query: str, kind: Optional[str] = None) -> List[Tuple[str, Symbol]]:
         q = query.lower()
         out = []

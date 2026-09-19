@@ -1,7 +1,7 @@
 """
-Agent-facing tool wrappers (the legacy_coder `@tool` shape).
+Agent-facing tool wrappers (plain string-returning `tf_*` functions).
 
-Borrowed pattern from legacy_coder tools/code_index.py + tools/semantic_search.py:
+Shape:
 thin functions that take simple args and return a formatted STRING for the agent
 to read. Kept dependency-free -- if langchain is installed they get wrapped as
 LangChain tools via get_tools(); otherwise the plain callables are used as-is.

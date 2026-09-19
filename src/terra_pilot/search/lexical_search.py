@@ -1,4 +1,4 @@
-"""Hybrid-retrieval scaffolding for the Acme Terraform Assistant.
+"""Hybrid-retrieval scaffolding for terra-pilot.
 
 Lexical (BM25) + Reciprocal Rank Fusion + a graph-expansion step that pulls a
 chunk's dependencies (variables.tf, upstream wiring) so retrieval never strands
@@ -479,7 +479,7 @@ class EmbeddingDense:
 
 
 class HttpReranker:
-    """Cross-encoder reranker over the payments gateway. Tries /rerank then /score."""
+    """Cross-encoder reranker over an OpenAI-rerank-compatible server. Tries /rerank then /score."""
 
     def __init__(self, base_url, api_key, model, timeout=60):
         self.base_url = base_url.rstrip("/")
@@ -565,7 +565,7 @@ def build_hybrid(idx: TerraPilotIndex, persist: bool = True) -> HybridRetriever:
     dense = EmbeddingDense(embedder, store, model=gateway.resolve_model_id(config.EMBED_SLUG, config.EMBED_MODEL)).build(hr.chunks)
     if dense.ready:
         hr.dense = dense
-    if config.RERANK_ENABLED:
+    if config.rerank_enabled():
         hr.reranker = HttpReranker(config.endpoint(config.RERANK_SLUG),
                                    config.API_KEY,
                                    gateway.resolve_model_id(config.RERANK_SLUG, config.RERANK_MODEL or None))

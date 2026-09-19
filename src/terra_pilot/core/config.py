@@ -15,6 +15,11 @@ API_KEY = os.environ.get("OPENAI_API_KEY", "")
 # e.g. "deepseek-chat", "deepseek-reasoner", "gpt-4o", "qwen2.5-coder-32b"
 GEN_MODEL = os.environ.get("LLM_GEN_MODEL", "deepseek-chat")
 
+# Optional reasoning control, sent as {"thinking": {"type": <value>}} to gateways that
+# support it (DeepSeek: "disabled" | "enabled"). Unset = send nothing. "disabled" is the
+# cheapest setting and avoids reasoning tokens eating a small max_tokens budget.
+THINKING = os.environ.get("LLM_THINKING", "").strip().lower()
+
 # ---------------------------------------------------------------------------
 # Embedding / Reranker (optional — BM25 works fine without them)
 # ---------------------------------------------------------------------------
@@ -22,8 +27,11 @@ GEN_MODEL = os.environ.get("LLM_GEN_MODEL", "deepseek-chat")
 # Set LLM_EMBED_ENABLED=0 to disable dense embeddings entirely (BM25 still runs).
 EMBED_ENABLED = os.environ.get("LLM_EMBED_ENABLED", "1") in ("1", "true", "yes", "on")
 
-# Set LLM_RERANK_ENABLED=0 to disable the cross-encoder reranker.
-RERANK_ENABLED = os.environ.get("LLM_RERANK_ENABLED", "1") in ("1", "true", "yes", "on")
+# The cross-encoder reranker only runs when LLM_RERANK_GATEWAY_BASE points at a
+# rerank server. It never falls back to the generation gateway (DeepSeek and
+# OpenAI have no /rerank route). LLM_RERANK_ENABLED=0 force-disables it.
+_TRUE = ("1", "true", "yes", "on")
+RERANK_ENABLED = os.environ.get("LLM_RERANK_ENABLED", "1").lower() in _TRUE
 
 # Embedding model name (only used when EMBED_ENABLED=1).
 EMBED_MODEL = os.environ.get("LLM_EMBED_MODEL", "jina-embeddings-v3")
@@ -52,7 +60,7 @@ GEN_SLUG     = os.environ.get("LLM_GEN_SLUG", "chat")
 # ---------------------------------------------------------------------------
 STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "local")
 STORAGE_DIR     = os.environ.get("STORAGE_DIR",
-                                 os.path.join(os.path.expanduser("~"), ".infra-pipeline"))
+                                 os.path.join(os.path.expanduser("~"), ".terra-pilot"))
 
 # Jina v3 late chunking (quality boost for code chunks, gateway-only).
 LATE_CHUNKING = os.environ.get("LLM_LATE_CHUNKING", "0") == "1"
@@ -79,9 +87,27 @@ def models_url(slug: str = "") -> str:
     return f"{base}/models" if base else ""
 
 
+def rerank_base() -> str:
+    """Rerank server base URL, or "" when none is configured. Read from the
+    environment on every call so it can be set after import."""
+    return (os.environ.get("LLM_RERANK_GATEWAY_BASE") or "").strip().rstrip("/")
+
+
+def rerank_enabled() -> bool:
+    """True only when a rerank server is configured and not force-disabled."""
+    flag = os.environ.get("LLM_RERANK_ENABLED", "1").strip().lower()
+    return flag in _TRUE and bool(rerank_base())
+
+
 def rerank_url() -> str:
-    base = endpoint(RERANK_SLUG)
-    return f"{base}/rerank" if base else ""
+    base = rerank_base()
+    return f"{base}/v1/rerank" if base else ""
+
+
+def embed_http_base() -> str:
+    """Embedding server base URL for the `auto` backend: only the dedicated
+    LLM_EMBED_GATEWAY_BASE counts, never the generation gateway."""
+    return (os.environ.get("LLM_EMBED_GATEWAY_BASE") or "").strip().rstrip("/")
 
 
 def is_configured() -> bool:

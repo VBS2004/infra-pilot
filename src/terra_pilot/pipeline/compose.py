@@ -2,14 +2,14 @@
 
 intent -> resolve paths -> reuse-vs-write decision + typed module schema ->
 retrieval grounding -> deterministic edit engine (C) + LLM edit-planner (A) ->
-MiniMax generates/splices inputs.hcl -> emit (terragrunt.hcl + inputs.hcl) for
-the env-tier component, in the REAL cloud-native-open-foundation convention.
+the LLM generates/splices inputs.hcl -> emit (terragrunt.hcl + inputs.hcl) for
+the env-tier component, in the repo's own Terragrunt convention.
 
 Reconciliation with the repo's existing layer:
   * We REUSE catalog.ModuleCatalog / ModuleEntry for the typed input schema
     (name/required/type/description), resource_types, and reuse_count.
   * We DO NOT use planner.Planner.render_inputs_hcl / scaffold_new_module: those
-    emit the generic legacy_coder convention (live/<env>/<project>/<name>/ with an
+    emit the generic live/<env>/<project>/<name>/ convention (with an
     inline `terraform { source = "../../.." + key }` + dependency blocks). This
     repo's component terragrunt.hcl is just `include { find_in_parent_folders(
     "root.hcl") }`; root.hcl generates source/provider/backend. So we emit that
@@ -61,6 +61,11 @@ from terra_pilot.core import paths
 from terra_pilot.search import retrieval
 from terra_pilot.core.convention import detect_convention
 from terra_pilot.pipeline.emitters import get_emitter
+from terra_pilot.utils import validate
+
+# Contract types the deterministic C path must NOT set as a scalar; these go to
+# the LLM edit-planner, which sees the real variables.tf shape.
+_COMPLEX_TYPES = ("list", "map", "object", "set", "tuple", "any")
 
 GenerateFn = Callable[[List[Dict[str, str]]], str]
 GenerateJsonFn = Callable[[List[Dict[str, str]]], Dict]
@@ -79,6 +84,7 @@ class ComposeArtifacts:
     grounding: str
     bootstrap: Optional["bootstrap.BootstrapPlan"] = None
     refused: bool = False
+    scaffold: str = ""                      # net-new module skeleton shown when refused
     change_applied: Optional[bool] = None   # None = n/a (create); else did the change land?
 
 
@@ -390,9 +396,11 @@ def _find_entry(cat, component: str, terraform_module: str):
         if getattr(m, "name", "") == component and "infrastructure" in str(key):
             return m
     try:
-        cand = cat.match(component, top=1)
-        if cand:
-            return cand[0]
+        # Loose text match: only trust it when the module really provides this
+        # component, otherwise an unrelated module's schema leaks into grounding.
+        for cand in cat.match(component, top=3):
+            if retrieval.module_relates(component, cand):
+                return cand
     except Exception:
         pass
     return None
@@ -464,7 +472,8 @@ def compose(repo: str, *, resource_type: str, project: str, env: str,
             operation: str = "create",
             regen: bool = False,
             extra_notes: Optional[List[str]] = None,
-            plan_only: bool = False) -> ComposeArtifacts:
+            plan_only: bool = False,
+            allow_freeform: bool = False) -> ComposeArtifacts:
     specifics = specifics or {}
     change_applied: Optional[bool] = None
 
@@ -496,6 +505,7 @@ def compose(repo: str, *, resource_type: str, project: str, env: str,
                 component_dir=rc.component_dir,
                 terragrunt_hcl=paths.standard_terragrunt_hcl(repo),
                 inputs_hcl="",
+                inputs_file_path=rc.inputs_hcl,
                 decision="refused",
                 module_key=None,
                 terraform_module=tm,
@@ -594,6 +604,37 @@ def compose(repo: str, *, resource_type: str, project: str, env: str,
     inputs_path = rc.inputs_hcl
     existing = os.path.exists(inputs_path)
 
+    # NO-PRECEDENT GUARD: with no module for this component there is no input
+    # contract to enforce, so an LLM would invent fields (an `ami_id` on an RDS).
+    # Emit the net-new module scaffold and refuse to write, unless the caller
+    # opts into unconstrained generation.
+    # (An existing component being edited already has its inputs.hcl as ground truth.)
+    if bundle.decision == "net-new" and not existing and not plan_only and not allow_freeform:
+        scaffold = emitter.scaffold_new_module(resource_type, project, None)
+        notes[:] = [n for n in notes if not n.startswith("bootstrap:")]
+        notes.append(
+            f"REFUSED: no module for '{resource_type}' exists in this repo, so there is "
+            f"no input contract to generate against. Write the leaf module (scaffold "
+            f"below) and re-run, or pass --freeform to allow unconstrained generation.")
+        stub = ""
+        if convention.kind == "terragrunt":
+            stub = ("# TODO: no module for '%s' exists; write it, then re-run compose.\n"
+                    "inputs = {}\n" % resource_type)
+        return ComposeArtifacts(
+            component_dir=rc.component_dir,
+            terragrunt_hcl="",
+            inputs_hcl=stub,
+            inputs_file_path=rc.inputs_hcl,
+            decision="net-new",
+            module_key=None,
+            terraform_module=tm,
+            notes=notes,
+            grounding=grounding,
+            bootstrap=None,
+            refused=True,
+            scaffold=scaffold,
+        )
+
     if plan_only:
         # Fast reuse-audit path: decision + module mapping are deterministic and
         # computed above; skip the (slow) LLM generation entirely.
@@ -675,6 +716,10 @@ def compose(repo: str, *, resource_type: str, project: str, env: str,
             bal = _brace_balance(inputs_hcl)
             if bal != 0:
                 notes.append(f"WARNING: inputs.hcl brace balance off by {bal}; review before apply")
+            todo = len(re.findall(r"\bTODO\b", inputs_hcl))
+            if todo:
+                notes.append(f"REVIEW: {todo} TODO placeholder(s) in inputs.hcl must be "
+                             f"filled before this component can be planned")
 
             # P1.2: flag SOURCE env identifiers that leaked through the rename (e.g. a
             # container/port name still embedding the reference project/env). Some
@@ -707,6 +752,9 @@ def compose(repo: str, *, resource_type: str, project: str, env: str,
     if bundle.decision == "net-new":
         notes.append("DECISION net-new: no reusable module found; a net-new leaf "
                      "module likely needs to be written before this inputs.hcl is valid")
+        if allow_freeform and not existing and not plan_only:
+            notes.append("WARNING: --freeform: generated without an input contract; "
+                         "field names are unverified and may be invented")
 
     return ComposeArtifacts(
         component_dir=rc.component_dir,
@@ -724,7 +772,8 @@ def compose(repo: str, *, resource_type: str, project: str, env: str,
 
 
 def from_text(repo: str, text: str, *, provider: str = paths.DEFAULT_PROVIDER,
-              generate: Optional[GenerateFn] = None, regen: bool = False):
+              generate: Optional[GenerateFn] = None, regen: bool = False,
+              allow_freeform: bool = False):
     """Parse NL -> intent -> compose. Returns (artifacts, intent)."""
     intent = intent_parser.parse_intent(text)
     missing = intent_parser.missing_fields(intent)
@@ -758,7 +807,7 @@ def from_text(repo: str, text: str, *, provider: str = paths.DEFAULT_PROVIDER,
                    specifics=specifics, provider=provider,
                    generate=generate, query=text,
                    operation=operation, regen=regen,
-                   extra_notes=reconcile_notes,
+                   extra_notes=reconcile_notes, allow_freeform=allow_freeform,
                    reference=reference if isinstance(reference, dict) else None)
     return arts, intent
 
@@ -829,7 +878,8 @@ def _reconcile_component_type(repo: str, text: str, primary: str,
 
 
 def from_text_multi(repo: str, text: str, *, provider: str = paths.DEFAULT_PROVIDER,
-                    generate: Optional[GenerateFn] = None, regen: bool = False):
+                    generate: Optional[GenerateFn] = None, regen: bool = False,
+                    allow_freeform: bool = False):
     """Parse NL -> intent, then compose EACH requested component (fan-out).
     Returns (results, intent) where results is a list of (resource_type,
     ComposeArtifacts). The shared destination (project/env) and reference apply
@@ -884,7 +934,7 @@ def from_text_multi(repo: str, text: str, *, provider: str = paths.DEFAULT_PROVI
                        specifics=specifics, provider=provider,
                        generate=generate, query=text, reference=ref,
                        operation=operation, regen=regen,
-                       extra_notes=reconcile_notes)
+                       extra_notes=reconcile_notes, allow_freeform=allow_freeform)
         results.append((rt, arts))
     return results, intent
 
@@ -925,6 +975,12 @@ def write_to_tree(a: ComposeArtifacts, *, overwrite: bool = False) -> List[str]:
         raise ValueError(
             f"refusing to write: inputs.hcl brace balance off by {bal} "
             f"(generation likely truncated). Increase max_tokens or review -- not writing.")
+    # Offline sanity tier (no external binary): strings, heredocs and comments
+    # aware, so a stray quote or bracket is caught even when braces balance.
+    problems = validate.hcl_text_problems(a.inputs_hcl)
+    if problems:
+        raise ValueError("refusing to write: inputs.hcl failed the HCL sanity check ("
+                         + "; ".join(problems[:3]) + ")")
 
     written: List[str] = []
     # P2: write scaffolded project/env files first; NEVER clobber an existing one.
@@ -976,6 +1032,9 @@ def _print_artifacts(a: ComposeArtifacts) -> None:
         print("# notes:")
         for n in a.notes:
             print(f"#   - {n}")
+    if a.scaffold:
+        print("\n# ===== net-new module scaffold (write this module first) =====")
+        print(a.scaffold)
     print("\n# ===== terragrunt.hcl =====")
     print(a.terragrunt_hcl)
     print("# ===== inputs.hcl =====")
@@ -988,13 +1047,15 @@ def run_cli(repo: str, rest: List[str]) -> int:
       - natural language: free-text intent tokens
     Flags: --apply (write; default dry-run), --force (overwrite inputs.hcl),
     --regen (after a verified edit-set mutation, ALSO re-run whole-file LLM
-    generation to restyle; default: skip / splice-only), --like "<text>"
+    generation to restyle; default: skip / splice-only), --freeform (allow
+    generation when no module exists for the component; default: refuse and
+    print a module scaffold instead), --like "<text>"
     (retrieval hint on the explicit path -- the "similar to X" precedent).
     Returns a process exit code (0 ok, 1 usage/failure).
     """
     val_flags = {"--resource-type": None, "--project": None,
                  "--env": None, "--provider": None, "--like": None}
-    do_apply = do_force = do_plan_only = do_regen = False
+    do_apply = do_force = do_plan_only = do_regen = do_freeform = False
     intent_tokens: List[str] = []
     i = 0
     while i < len(rest):
@@ -1014,6 +1075,8 @@ def run_cli(repo: str, rest: List[str]) -> int:
             do_plan_only = True
         elif tok == "--regen":
             do_regen = True
+        elif tok == "--freeform":
+            do_freeform = True
         else:
             intent_tokens.append(tok)
         i += 1
@@ -1030,15 +1093,17 @@ def run_cli(repo: str, rest: List[str]) -> int:
         if rtype and project and env:
             arts = compose(repo, resource_type=rtype, project=project,
                            env=env, provider=provider, query=like,
-                           regen=do_regen, plan_only=do_plan_only)
+                           regen=do_regen, plan_only=do_plan_only,
+                           allow_freeform=do_freeform)
             results = [(rtype, arts)]
         elif intent_text:
             results, intent = from_text_multi(repo, intent_text, provider=provider,
-                                              regen=do_regen)
+                                              regen=do_regen,
+                                              allow_freeform=do_freeform)
         else:
             print('usage: cli.py <repo> compose "<intent...>"   '
                   '(or --resource-type R --project P --env E [--like "..."]) '
-                  '[--plan-only] [--apply] [--force] [--regen]')
+                  '[--plan-only] [--apply] [--force] [--regen] [--freeform]')
             return 1
     except Exception as e:
         print(f"# compose failed: {type(e).__name__}: {e}")
@@ -1087,8 +1152,22 @@ def run_cli(repo: str, rest: List[str]) -> int:
                 print(f"# WROTE ({rt}):")
                 for w in written:
                     print("#   " + w)
+                fmt = validate.fmt_check(arts.component_dir)
+                if fmt.skipped:
+                    print(f"# fmt check skipped ({fmt.note})")
+                elif fmt.ok:
+                    print("# fmt check: ok")
+                else:
+                    # Generated output is rarely canonical: format only the file we wrote.
+                    fixed = validate.format_file(arts.inputs_file_path)
+                    if fixed.ok and validate.fmt_check(arts.component_dir).ok:
+                        print(f"# fmt: reformatted {os.path.basename(arts.inputs_file_path)} "
+                              f"(generated output was not canonical)")
+                    else:
+                        print("# fmt check: FAILED -- run the formatter before committing")
         if not wrote_any:
             print("# nothing written.")
+            return 1
     else:
         print("# dry-run (no files written). Re-run with --apply to write.")
     return 0

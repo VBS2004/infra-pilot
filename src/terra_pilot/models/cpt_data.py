@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CPT Dataset Generator for Qwen2.5-Coder (7B/14B-Instruct)
+Continued-pretraining (CPT) dataset generator for code models
 
 Context window: 128k tokens (~500k chars) — essentially no single file needs chunking.
 
@@ -274,7 +274,7 @@ def build_dataset(repo_root: str, output_path: str, max_chars: int, no_grouping:
     print(f"  Output:     {output_path}")
     print(f"  Max chars:  {max_chars:,} (estimated {max_chars//4:,} tokens)")
     print(f"  Grouping:   {'OFF' if no_grouping else 'ON (files in same dir bundled)'}")
-    print(f"  Context:    128k tokens (Qwen2.5-Coder-7B/14B-Instruct)")
+    print(f"  Context:    128k tokens")
     print(f"{'='*60}\n")
 
     files = collect_files(repo_root)
@@ -298,7 +298,7 @@ def build_dataset(repo_root: str, output_path: str, max_chars: int, no_grouping:
     total_chars = 0
     count = 0
 
-    with open(output_path, 'w') as fout:
+    with open(output_path, 'w', encoding='utf-8') as fout:
         for label, text in groups:
             total_chars += len(text)
             fout.write(json.dumps({"text": text}) + '\n')
@@ -316,8 +316,8 @@ def build_dataset(repo_root: str, output_path: str, max_chars: int, no_grouping:
 # ── CLI ──────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="CPT Dataset Generator for Qwen2.5-Coder")
-    parser.add_argument("repo_root", help="Path to the CNOF repo root")
+    parser = argparse.ArgumentParser(description="CPT dataset generator")
+    parser.add_argument("repo_root", help="Path to the Terraform/Terragrunt repo root")
     parser.add_argument("output", help="Output JSONL file path")
     parser.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS,
                         help=f"Max chars per training example (default: {DEFAULT_MAX_CHARS:,})")

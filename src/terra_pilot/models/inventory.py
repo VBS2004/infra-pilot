@@ -1,4 +1,4 @@
-"""inventory.py - deterministic component lookup for the Acme Terraform Assistant.
+"""inventory.py - deterministic component lookup for the terra-pilot.
 
 The manager's ask - "list all ECS clusters with <config> in <project>" - is an
 INVENTORY query, not a retrieval query. retrieval.HybridRetriever.search() is a
@@ -10,7 +10,7 @@ a "list all ... where ..." question. This module answers it deterministically:
     config predicate against each component's real inputs.hcl  ->  print/return.
 
 Repo convention (confirmed across compose.py / retrieval.py):
-    infra/<project>/<provider>/<env>/<component>/inputs.hcl
+    <repo>/<project>/<provider>/<env>/<component>/inputs.hcl
 
 Scope: predicates match BOTH TOP-LEVEL AND NESTED inputs (via dot-notation) (e.g. enable_irsa=false,
 cluster_version=1.34, region=ap-south-1) via hcl_override.read_top_level. Nested
@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 from typing import Dict, List, Optional, Tuple
 
+from terra_pilot.core import paths
 from terra_pilot.hcl import hcl_override
 from terra_pilot.hcl import hcl_edit
 
@@ -34,14 +35,16 @@ _NAME_CANDIDATES = ["cluster_name", "bucket_name", "identifier",
 
 
 def _iter_components(repo: str, resource_type: str, project: Optional[str],
-                     provider: str, infra_root: str):
+                     provider: str, infra_root: Optional[str]):
     """Yield (project, env, component_dir, inputs_path) for every existing
     <resource_type> component, scoped to `project` when given."""
-    base = os.path.join(repo, infra_root)
+    base = os.path.join(repo, infra_root) if infra_root else paths.infra_root(repo)
     if not os.path.isdir(base):
         return
     projects = [project] if project else sorted(
-        d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d)))
+        d for d in os.listdir(base)
+        if os.path.isdir(os.path.join(base, d)) and d != "modules"
+        and not d.startswith("."))
     for proj in projects:
         pdir = os.path.join(base, proj, provider)
         if not os.path.isdir(pdir):
@@ -94,7 +97,7 @@ def _pick_name(values: Dict[str, str]) -> str:
 
 def find(repo: str, resource_type: str, *, project: Optional[str] = None,
          provider: str = "aws", where: Optional[List[str]] = None,
-         infra_root: str = "infra") -> Tuple[List[Dict], set]:
+         infra_root: Optional[str] = None) -> Tuple[List[Dict], set]:
     """Return (rows, unresolved_keys). Each row: {project, env, dir, name, values}.
     unresolved_keys = predicate keys that were NEVER seen as a top-level scalar
     in any scanned component (i.e. nested/unknown -> filter may be incomplete).

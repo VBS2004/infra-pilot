@@ -1,9 +1,9 @@
 """
 Embedding persistence through the pluggable StorageBackend.
 
-Borrowed pattern from legacy_coder (semantic._save/_load): persist embeddings as a
+Persist embeddings as a
 numpy array + a JSON sidecar (model, chunk ids, per-chunk content hashes) so the
-index doesn't re-embed unchanged chunks across runs. Unlike legacy_coder this goes
+index doesn't re-embed unchanged chunks across runs. This goes
 through StorageBackend (not a hard-coded ~/.idfc-coder path), so disk today /
 shared storage later is a backend swap.
 

@@ -1,7 +1,7 @@
 """
 Reuse-vs-write planner + emitter — the deterministic core of the compose loop.
 
-Given an intent ("I want an EC2 for the payments project"), it:
+Given an intent ("I want an EC2 for the billing project"), it:
   1. asks the ModuleCatalog for matching reusable templates,
   2. DECIDES reuse-vs-write,
   3a. reuse  -> emits a terragrunt.hcl that `source`s the existing module and
@@ -11,7 +11,7 @@ Given an intent ("I want an EC2 for the payments project"), it:
                with the nearest existing module as a style reference.
 
 No LLM here: this is the deterministic retrieval + planning shell. A generator
-(local Qwen2.5-Coder / hosted Qwen3-Coder-30B) fills the resource bodies and
+(any OpenAI-compatible model) fills the resource bodies and
 free-form values; everything structural is grounded in the index.
 """
 from __future__ import annotations
@@ -51,13 +51,13 @@ class Planner:
         self.catalog = catalog or ModuleCatalog(idx)
 
     # --- decision ---------------------------------------------------------- #
-    def plan(self, intent: str, project: str = "payments",
+    def plan(self, intent: str, project: str = "myproject",
              env_tier: str = "nonprod") -> Plan:
         convention = detect_convention(self.idx.root)
         emitter = get_emitter(convention.kind)
         
-        candidates = self.catalog.match(intent, top=3)
-        if candidates and self._is_relevant(intent, candidates[0]):
+        candidates = self._rank(intent)
+        if candidates:
             m = candidates[0]
             plan = Plan(intent=intent, decision="reuse", module=m,
                         candidates=candidates,
@@ -70,8 +70,9 @@ class Planner:
                 f"Write only inputs.hcl wiring — no net-new .tf.")
             return plan
         # write-new path
-        plan = Plan(intent=intent, decision="write_new", candidates=candidates)
-        nearest = candidates[0] if candidates else None
+        nearest_all = self.catalog.match(intent, top=3)
+        plan = Plan(intent=intent, decision="write_new", candidates=nearest_all)
+        nearest = nearest_all[0] if nearest_all else None
         plan.style_reference = nearest.key if nearest else None
         plan.rendered = emitter.scaffold_new_module(intent, project, nearest)
         plan.notes.append(
@@ -81,17 +82,53 @@ class Planner:
             "No existing module matched — scaffold a net-new leaf module from scratch.")
         return plan
 
-    def _is_relevant(self, intent: str, m: ModuleEntry) -> bool:
-        """A match is a reuse candidate if the intent names the module or one of
-        its resource types (e.g. 'ec2' -> ec2 / aws_instance)."""
-        toks = set(re.findall(r"[a-z0-9]+", intent.lower()))
-        hay = set(re.findall(r"[a-z0-9]+", (m.name + " " + " ".join(m.resource_types)).lower()))
-        # common aliases
-        alias = {"ec2": "instance", "sg": "security", "lb": "alb"}
-        for a, b in alias.items():
-            if a in toks:
-                hay.add(a)
-        return bool(toks & hay)
+    # Words that carry no resource-type information in a request or a module name.
+    _GENERIC = {
+        "aws", "azurerm", "google", "resource", "resources", "module", "modules", "main",
+        "this", "the", "a", "an", "for", "in", "of", "to", "with", "and", "or", "on", "at",
+        "create", "deploy", "provision", "new", "my", "i", "we", "want", "need", "please",
+        "project", "like", "similar", "same", "as", "env", "environment", "nonprod", "prod",
+        "dev", "staging", "just", "some", "add", "make", "set", "up",
+    }
+
+    @staticmethod
+    def _toks(text: str) -> set:
+        return {t for t in re.findall(r"[a-z0-9]+", (text or "").lower()) if t}
+
+    def _rank(self, intent: str) -> List[ModuleEntry]:
+        """Modules relevant to the request, best first. A module scores 2 per
+        request word found in its provider resource types (aws_db_instance ->
+        {db, instance}) and 1 per word found in its name/path; words that carry no
+        type information (aws, resource, create, ...) never count. Zero score =
+        not a reuse candidate. Replaces first-match token overlap, which reused an
+        unrelated module on a single shared generic word."""
+        from terra_pilot.search.retrieval import _TYPE_ALIASES
+        words = self._toks(intent) - self._GENERIC
+        want = set(words)
+        for w in words:
+            want |= _TYPE_ALIASES.get(w, set())
+        want -= self._GENERIC
+        scored = []
+        for order, m in enumerate(self.catalog.modules.values()):
+            types = set()
+            for rt in m.resource_types:
+                types |= self._toks(rt.replace("_", " "))
+            types -= self._GENERIC
+            name = self._toks(m.key.replace("_", " ").replace("-", " ")) - self._GENERIC
+            score = 2 * len(want & types) + len(want & name)
+            # A short request is a resource-type phrase ("iam role policy"): at least
+            # half of its words must be explained by the module, so one shared
+            # generic word ("network", "attachment") is not enough. A long sentence
+            # keeps the any-match rule (its extra words are prose).
+            if score and len(words) <= 5:
+                hay = types | name
+                covered = sum(1 for w in words if (({w} | _TYPE_ALIASES.get(w, set())) & hay))
+                if covered * 2 < len(words):
+                    continue
+            if score:
+                scored.append((-score, -m.reuse_count, order, m))
+        scored.sort(key=lambda t: t[:3])
+        return [t[3] for t in scored[:3]]
 
     # --- emitters ---------------------------------------------------------- #
     # --- helpers ----------------------------------------------------------- #

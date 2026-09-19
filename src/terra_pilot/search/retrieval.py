@@ -16,8 +16,8 @@ where the index isn't built. Attribute access is defensive (getattr) since the
 catalog's exact field set may evolve.
 
 HYBRID RETRIEVAL (22 Jun 2026): when the index + gateway are available we also
-run lexical_search.build_hybrid(idx).search(query) -- BM25 + dense (Jina-v3) +
-RRF + qwen reranker over HCL-block chunks. The ranked hits are surfaced in the
+run lexical_search.build_hybrid(idx).search(query) -- BM25 + dense (any embedder) +
+RRF + cross-encoder reranker over HCL-block chunks. The ranked hits are surfaced in the
 grounding (so the generator sees the closest real precedents, with scores for
 observability) and provide a recall FALLBACK for module selection when the
 lexical catalog match comes up empty (synonyms / "similar to X"). Everything
@@ -78,7 +78,7 @@ def _names(inputs) -> List[str]:
 
 
 # --------------------------------------------------------------------------- #
-# Hybrid semantic retrieval (BM25 + dense Jina-v3 + RRF + qwen reranker)
+# Hybrid semantic retrieval (BM25 + dense + RRF + cross-encoder reranker)
 # --------------------------------------------------------------------------- #
 def hybrid_search(repo: str, query: str, *, top_k: int = 8) -> List[Dict]:
     """Run lexical_search.build_hybrid(idx).search(query).
@@ -157,6 +157,42 @@ def _candidate_from_module(m) -> ModuleCandidate:
     )
 
 
+# Words that name the same thing in a component dir vs. a provider resource type.
+_TYPE_ALIASES = {
+    "ec2": {"instance", "ec2"}, "vm": {"instance"}, "instance": {"instance", "ec2"},
+    "sg": {"security", "group"}, "security_group": {"security", "group"},
+    "database": {"db", "rds", "aurora", "postgres", "mysql"},
+    "db": {"db", "rds"}, "rds": {"db", "rds", "aurora"},
+    "lb": {"lb", "alb", "elb", "nlb"}, "alb": {"lb", "alb"},
+    "vpc": {"vpc", "network"}, "network": {"vpc", "network", "subnet"},
+    "k8s": {"eks", "kubernetes"}, "kubernetes": {"eks", "kubernetes"},
+    "bucket": {"s3", "bucket"}, "s3": {"s3", "bucket"},
+}
+
+
+def _tokens(text: str) -> set:
+    return {t for t in re.split(r"[^a-z0-9]+", (text or "").lower()) if t}
+
+
+def module_relates(resource_type: str, module) -> bool:
+    """Does `module` plausibly provide `resource_type`? Compares the resource
+    type (plus a few aliases) with the module's name/path segments and its
+    provider resource types (aws_db_instance -> {aws, db, instance}). Guards the
+    semantic recall fallback so a nearby-but-wrong module (e.g. ec2 for an rds
+    request) is never adopted as the input contract."""
+    want = _tokens(resource_type)
+    for w in list(want):
+        want |= _TYPE_ALIASES.get(w, set())
+    want.discard("aws")
+    if not want:
+        return False
+    hay = _tokens(str(getattr(module, "key", "")))
+    for rt in getattr(module, "resource_types", []) or []:
+        hay |= _tokens(str(rt))
+    hay.discard("aws")
+    return bool(want & hay)
+
+
 def semantic_module(repo: str, resource_type: str, query: str,
                     *, _hits: Optional[List[Dict]] = None
                     ) -> Tuple[Optional[ModuleCandidate], List[Dict]]:
@@ -175,6 +211,8 @@ def semantic_module(repo: str, resource_type: str, query: str,
     for h in prim:
         key = _module_key_for_file(cat, h.get("file") or "")
         if key and key in modules:
+            if not module_relates(resource_type, modules[key]):
+                continue   # nearby but unrelated module: not a reuse candidate
             return _candidate_from_module(modules[key]), hits
     return None, hits
 

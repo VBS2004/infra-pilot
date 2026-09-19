@@ -291,7 +291,7 @@ def _parse_module_source_template(source: str) -> Optional[str]:
       "modules/{provider}/infrastructure/{terraform_module}/{component}"
       or None if we can't parse it.
     """
-    # Pattern 1: the standard Acme-style dynamic source
+    # Pattern 1: the standard dynamic source
     #   .../modules//aws/infrastructure/${tm}/${component}/
     m = _RE_MODULES_PREFIX.search(source)
     if m:

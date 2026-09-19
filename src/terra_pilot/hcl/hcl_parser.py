@@ -1,5 +1,5 @@
 """
-Dependency-free HCL / Terragrunt parser for the Acme Terraform Assistant.
+Dependency-free HCL / Terragrunt parser for terra-pilot.
 
 Why not tree-sitter?
 --------------------

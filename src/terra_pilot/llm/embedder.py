@@ -1,11 +1,10 @@
 """Embedding clients with a backend toggle + graceful degradation.
 
-Borrowed almost verbatim from legacy_coder (semantic.HTTPEmbedder): an
-OpenAI-compatible /embeddings client whose .encode() is interchangeable with
-sentence-transformers. This IS our Jina-v3 hook -- point LLM_GATEWAY_BASE +
-LLM_EMBED_SLUG at the gateway and it speaks to jina-embeddings-v3.
+An OpenAI-compatible /embeddings client whose .encode() is interchangeable with
+sentence-transformers. Point LLM_EMBED_GATEWAY_BASE at any embedding server
+(vLLM, Infinity, a hosted API).
 
-Difference from legacy_coder: uses stdlib urllib (no `requests` dependency) so the
+Uses stdlib urllib (no `requests` dependency) so the
 tool stays zero-dep on the lexical path.
 
 Concurrency + resilience:
@@ -15,7 +14,7 @@ Concurrency + resilience:
   - completed batches are checkpointed to disk keyed by (model, content-hash),
     so a crash / Ctrl-C / gateway timeout does NOT lose finished work -- re-run
     resumes and only embeds what's missing. Cache dir: EMBED_CACHE_DIR
-    (default ~/.payments-indexer/embed_cache); disable with EMBED_CACHE=0.
+    (default ~/.terra-pilot/embed_cache); disable with EMBED_CACHE=0.
   - identical texts are embedded once (dedup by content hash).
 
 make_embedder() returns:
@@ -65,7 +64,7 @@ def _env_flag(name: str, default: bool = True) -> bool:
 
 
 class HTTPEmbedder:
-    """OpenAI-compatible /embeddings client (Jina-v3 via the Acme gateway)."""
+    """OpenAI-compatible /embeddings client (vLLM, Infinity, hosted APIs)."""
 
     def __init__(self, model: str, base_url: str, api_key: str,
                  batch: int = 16, timeout: int = 60,
@@ -90,7 +89,7 @@ class HTTPEmbedder:
 
         self._cache_enabled = _env_flag("EMBED_CACHE", True)
         cdir = (cache_dir or os.environ.get("EMBED_CACHE_DIR")
-                or os.path.expanduser("~/.payments-indexer/embed_cache"))
+                or os.path.expanduser("~/.terra-pilot/embed_cache"))
         self._cache_dir = cdir
         tag = hashlib.sha1(("%s|%s" % (self.model, self.base_url)).encode("utf-8")).hexdigest()[:12]
         self._cache_path = os.path.join(cdir, "emb_" + tag + ".jsonl")
@@ -281,7 +280,12 @@ def make_embedder() -> Optional[object]:
     if backend == "none":
         return None
     if backend in ("auto", "http"):
+        # `auto` only goes over HTTP when a dedicated embed server is configured;
+        # otherwise the generation gateway (e.g. DeepSeek, no /embeddings) would
+        # be probed on every index build. An explicit `http` backend may use it.
         base = config.endpoint(config.EMBED_SLUG)
+        if backend == "auto" and not config.embed_http_base():
+            base = ""
         if base and config.API_KEY:
             model_id = gateway.resolve_model_id(config.EMBED_SLUG, config.EMBED_MODEL)
             return HTTPEmbedder(model_id, base, config.API_KEY,
