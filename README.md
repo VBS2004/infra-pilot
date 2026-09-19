@@ -3,16 +3,19 @@
 
   # terra-pilot
 
-  **Autopilot for Terraform & Terragrunt — generate production-ready IaC from natural language.**
+  **Natural-language infrastructure-as-code for Terraform & Terragrunt — grounded in your own repo, with an LLM you choose.**
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
   [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
   [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-  [![GitHub Stars](https://img.shields.io/github/stars/vbs2004/terra-pilot?style=social)](https://github.com/VBS2004/infra-pilot)
+  [![CI](https://github.com/VBS2004/infra-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/VBS2004/infra-pilot/actions/workflows/ci.yml)
+  [![GitHub Stars](https://img.shields.io/github/stars/VBS2004/infra-pilot?style=social)](https://github.com/VBS2004/infra-pilot)
 
-  *"Deploy an EC2 for auth-service nonprod, just like in payments"* → production `inputs.hcl` + `terragrunt.hcl` in seconds.
+  *"Deploy an EC2 for billing nonprod, just like in auth"* → a reviewed `inputs.hcl` + `terragrunt.hcl` that follows your repo's conventions.
 
-  [Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Architecture](#-architecture) · [Configuration](#-configuration) · [Roadmap](#-roadmap)
+  [Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Architecture](#-architecture) · [Configuration](#-configuration) · [Testing](#-testing) · [Status](#-project-status) · [Roadmap](#-roadmap) · [Contributing](CONTRIBUTING.md)
+
+  <sub>terraform · terragrunt · infrastructure as code · IaC · LLM · RAG · AI code generation · DevOps · platform engineering · DeepSeek · OpenAI-compatible</sub>
 
 </div>
 
@@ -20,7 +23,7 @@
 
 ## ✨ What is terra-pilot?
 
-**terra-pilot** is an AI-powered code generation pipeline that composes Terraform/Terragrunt infrastructure from natural language prompts. It doesn't guess — it **reads your existing repo**, learns your patterns, and generates code that fits your conventions perfectly.
+**terra-pilot** is an open-source command-line tool that turns a plain-English request into Terraform or Terragrunt code. It composes infrastructure from natural language prompts using any OpenAI-compatible LLM (DeepSeek, OpenAI, Ollama, vLLM, or a local model). It doesn't guess — it **reads your existing repo**, learns your patterns, and generates code that fits your conventions perfectly.
 
 Unlike generic AI code generators, terra-pilot uses a **hybrid RAG architecture** with schema enforcement:
 
@@ -100,7 +103,7 @@ export LLM_GEN_MODEL="llama3"
 See `.env.example` for every variable.
 
 ```bash
-terra-pilot /path/to/your/terraform-repo compose "deploy an ecs service for payments prod"
+terra-pilot /path/to/your/terraform-repo compose "deploy an ecs service for billing prod"
 ```
 
 ## 🧠 How It Works
@@ -260,6 +263,18 @@ for f in tests/test_*.py; do python "$f"; done
 Bigger checks that need the TerraDS data: `python stress_test.py` (edge cases + random repos),
 `python quality_sweep.py` (are the reuse/write *decisions* right on 100+ real repos?).
 
+## 📌 Project status
+
+terra-pilot is a **working prototype**, not a released product. What is verified and what is not is
+tracked, with evidence, in [STATUS.md](STATUS.md); open design choices are in
+[DECISIONS.md](DECISIONS.md), and [AGENTS.md](AGENTS.md) is the map of the codebase.
+
+- Verified: the full offline test suite (fake LLM gateway), real `terragrunt`/`terraform`/`tflint`/`tfsec`/`checkov`
+  runs, a real-AWS-provider plan of generated output (opt-in), live `deepseek-flash` runs, and reuse-vs-write
+  decisions on 200 real GitHub Terraform repos (0% false reuse on the compose path).
+- Not yet done: measuring generation *quality* across many requests (an evaluation harness),
+  non-AWS providers, and a fine-tuned model.
+
 ## 🗺️ Roadmap
 
 - [x] **Hybrid RAG retrieval** — BM25 + dense embeddings + cross-encoder reranking
@@ -290,14 +305,12 @@ git commit -m "feat: add my feature"
 
 MIT License — see [LICENSE](LICENSE) for details.
 
-## 🌟 Star History
+## 🌟 Support
 
-If terra-pilot saves you time, please consider giving it a ⭐ — it helps others discover the project!
+If terra-pilot saves you time, a ⭐ helps others find it. Bug reports and PRs are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
 <div align="center">
   <b>Built with ❤️ by <a href="https://github.com/vbs2004">Venkat Balaji S</a></b>
-  <br/>
-  <sub>Originally developed for enterprise-scale Terraform/Terragrunt infrastructure automation.</sub>
 </div>
