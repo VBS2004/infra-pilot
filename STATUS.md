@@ -118,7 +118,7 @@ on, small `max_tokens` budgets can return empty content because reasoning tokens
   `Resources` 1,773,991 rows), filtered/joined parquet.
 - Dev box: Linux, Python 3.10 venv (`uv`), RTX 3050 4 GB, 15 GB RAM. Torch 2.14 + transformers 4.57 in
   the venv. Java 17 for Spark.
-- Repo: `github.com/VBS2004/infra-pilot`, default branch `master`. About 8.7k lines of source, 2.1k of
+- Repo: `github.com/VBS2004/terra-pilot`, default branch `master`. About 8.7k lines of source, 2.1k of
   tests and data pipelines.
 - `pyspark_test.py` / `.ipynb` are now superseded by `data_pipeline/` and can be deleted.
 

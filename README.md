@@ -8,8 +8,8 @@
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
   [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
   [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-  [![CI](https://github.com/VBS2004/infra-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/VBS2004/infra-pilot/actions/workflows/ci.yml)
-  [![GitHub Stars](https://img.shields.io/github/stars/VBS2004/infra-pilot?style=social)](https://github.com/VBS2004/infra-pilot)
+  [![CI](https://github.com/VBS2004/terra-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/VBS2004/terra-pilot/actions/workflows/ci.yml)
+  [![GitHub Stars](https://img.shields.io/github/stars/VBS2004/terra-pilot?style=social)](https://github.com/VBS2004/terra-pilot)
 
   *"Deploy an EC2 for billing nonprod, just like in auth"* → a reviewed `inputs.hcl` + `terragrunt.hcl` that follows your repo's conventions.
 
@@ -66,8 +66,8 @@ $ terra-pilot ./my-infra compose "deploy an ec2 for billing nonprod just like in
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/VBS2004/infra-pilot.git
-cd infra-pilot
+git clone https://github.com/VBS2004/terra-pilot.git
+cd terra-pilot
 
 # Zero-dependency install: stdlib HCL parser + BM25, no third-party packages
 pip install -e .

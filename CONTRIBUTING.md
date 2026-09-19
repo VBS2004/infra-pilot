@@ -7,8 +7,8 @@ and what is not, [STATUS.md](STATUS.md); for open design questions, [DECISIONS.m
 ## Quick start
 
 ```bash
-git clone https://github.com/VBS2004/infra-pilot.git
-cd infra-pilot
+git clone https://github.com/VBS2004/terra-pilot.git
+cd terra-pilot
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -e ".[full]"                              # core has zero dependencies; extras are optional
 
@@ -88,5 +88,5 @@ remove comments or contributions that cross the line.
 
 ## Questions?
 
-Open a [Discussion](https://github.com/VBS2004/infra-pilot/discussions) (or an issue if Discussions
+Open a [Discussion](https://github.com/VBS2004/terra-pilot/discussions) (or an issue if Discussions
 are off). A short reproduction gets the fastest answer.

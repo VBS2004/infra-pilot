@@ -43,10 +43,10 @@ dependencies = []
 terra-pilot = "terra_pilot.main:main"
 
 [project.urls]
-Homepage = "https://github.com/VBS2004/infra-pilot"
-Documentation = "https://github.com/VBS2004/infra-pilot#readme"
-Repository = "https://github.com/VBS2004/infra-pilot"
-Issues = "https://github.com/VBS2004/infra-pilot/issues"
+Homepage = "https://github.com/VBS2004/terra-pilot"
+Documentation = "https://github.com/VBS2004/terra-pilot#readme"
+Repository = "https://github.com/VBS2004/terra-pilot"
+Issues = "https://github.com/VBS2004/terra-pilot/issues"
 
 [project.optional-dependencies]
 full = [

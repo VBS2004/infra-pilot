@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please **do not open a public issue** for a security problem. Use GitHub's private reporting:
-**Security → Report a vulnerability** on <https://github.com/VBS2004/infra-pilot>. Include the version
+**Security → Report a vulnerability** on <https://github.com/VBS2004/terra-pilot>. Include the version
 or commit, what you found, and how to reproduce it. You should get a first reply within a week.
 
 ## Scope worth reporting

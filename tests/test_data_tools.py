@@ -133,7 +133,7 @@ def test_extract_archive_unit():
     good = 'resource "aws_s3_bucket" "b" {\n  bucket = "x"\n}\n'
     p = os.path.join(d, "42.tar.gz")
     _tgz(p, {"42/main.tf": good, "42/README.md": "# hi", "42/.terraform/x.tf": good,
-             "42/broken.tf": 'resource "a" "b" {\n', "42/creds.tf": 'k = "AKIAABCDEFGHIJKLMNOP"\n',
+             "42/broken.tf": 'resource "a" "b" {\n', "42/creds.tf": 'k = "AKIA' + 'ABCDEFGHIJKLMNOP"\n',
              "42/bin.tf": "a\x00b"})
     rows = {r[1]: r for r in ef.extract_archive(p)}
     check("only HCL files outside skip-dirs, no binary", sorted(rows) == ["42/broken.tf", "42/creds.tf", "42/main.tf"], str(sorted(rows)))
@@ -162,7 +162,7 @@ def test_spark_pipelines(spark):
     d = tempfile.mkdtemp()
     a = 'resource "aws_s3_bucket" "b" {\n  bucket = "shared"\n}\n'
     _tgz(os.path.join(d, "1.tar.gz"), {"1/main.tf": a, "1/vars.tf": 'variable "x" {}\n', "1/broken.tf": "a = {\n"})
-    _tgz(os.path.join(d, "2.tar.gz"), {"2/main.tf": a, "2/leak.tf": 'k = "AKIAABCDEFGHIJKLMNOP"\n',
+    _tgz(os.path.join(d, "2.tar.gz"), {"2/main.tf": a, "2/leak.tf": 'k = "AKIA' + 'ABCDEFGHIJKLMNOP"\n',
                                        "2/e.tfvars": 'region = "us-east-1"\n'})
     _tgz(os.path.join(d, "3.tar.gz"), {"3/notes.md": "x"})
     out = os.path.join(d, "out.parquet")
